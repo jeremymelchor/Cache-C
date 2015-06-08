@@ -23,21 +23,21 @@ void Strategy_Invalidate(struct Cache *pcache)
 
 struct Cache_Block_Header *Strategy_Replace_Block(struct Cache *pcache) 
 {
-    struct Cache_Block_Header *pbh;
+    struct Cache_Block_Header *buffer;
     struct Cache_List *c_list = C_LIST(pcache);
 
     /* S'il existe un cache invalide, on va utiliser celui la */
-    if ((pbh = Get_Free_Block(pcache)) != NULL) {
+    if ((buffer = Get_Free_Block(pcache)) != NULL) {
     	// Comme on va l'utiliser, on le met en fin de liste
-        Cache_List_Append(c_list, pbh);
+        Cache_List_Append(c_list, buffer);
     } else {
 	    // On prend le premier de la liste que l'on va retourner
-	    pbh = Cache_List_Remove_First(c_list);
+	    buffer = Cache_List_Remove_First(c_list);
 
 	    // Comme on va l'utiliser, on le met en fin de liste
-	    Cache_List_Append(c_list, pbh);
+	    Cache_List_Append(c_list, buffer);
 	}
-    return pbh;    
+    return buffer;    
 }
 
 void Strategy_Read(struct Cache *pcache, struct Cache_Block_Header *pbh) 
