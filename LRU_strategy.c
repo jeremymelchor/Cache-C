@@ -33,7 +33,7 @@ struct Cache_Block_Header *Strategy_Replace_Block(struct Cache *pcache)
     if(buffer != NULL)
     	Cache_List_Append(list, buffer);
     else{
-    	pbh = Cache_List_Remove_First(list);
+    	buffer = Cache_List_Remove_First(list);
     	Cache_List_Append(list, buffer);
     	}
     
