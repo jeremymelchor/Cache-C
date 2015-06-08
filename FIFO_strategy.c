@@ -27,19 +27,16 @@ struct Cache_Block_Header *Strategy_Replace_Block(struct Cache *pcache)
     struct Cache_List *c_list = C_LIST(pcache);
 
     /* S'il existe un cache invalide, on va utiliser celui la */
-    if ((pbh = Get_Free_Block(pcache)) != NULL)
-    {
+    if ((pbh = Get_Free_Block(pcache)) != NULL) {
     	// Comme on va l'utiliser, on le met en fin de liste
         Cache_List_Append(c_list, pbh);
-        return pbh;
-    }
+    } else {
+	    // On prend le premier de la liste que l'on va retourner
+	    pbh = Cache_List_Remove_First(c_list);
 
-    // On prend le premier de la liste que l'on va retourner
-    pbh = Cache_List_Remove_First(c_list);
-
-    // Comme on va l'utiliser, on le met en fin de liste
-    Cache_List_Append(c_list, pbh);
-
+	    // Comme on va l'utiliser, on le met en fin de liste
+	    Cache_List_Append(c_list, pbh);
+	}
     return pbh;    
 }
 
