@@ -14,7 +14,18 @@
 
 struct Cache *Cache_Create(const char *fic, unsigned nblocks, unsigned nrecords,
                            size_t recordsz, unsigned nderef) {
+
+	Cache cache = malloc(sizeof(Cache));
+
+	cache.file = fic;
+	cache.nblocks = nblocks;
+	cache.nrecords = nrecords;
+	cache.recordsz = recordsz;
+	cache.nderef = nderef;
 	
+	cache.instrument = malloc(sizeof(struct Cache_Instrument));
+	cache.pfree = malloc(sizeof(Cache_Block_header));
+	cache.headers = malloc(sizeof(Cache_Block_header));
 }
 
 //! Fermeture (destruction) du cache.
