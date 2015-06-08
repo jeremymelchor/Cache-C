@@ -13,7 +13,9 @@ void Cache_List_Delete(struct Cache_List *list)
 void Cache_List_Append(struct Cache_List *list, struct Cache_Block_Header *pbh)
 {
 }
-/*! Insertion d'un élément au début*/
+/*! Insertion d'un élément au début
+* ----->LRU
+*/
 void Cache_List_Prepend(struct Cache_List *list, struct Cache_Block_Header *pbh)
 {
 }
