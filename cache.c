@@ -11,6 +11,7 @@
  */
 
 #include <stdlib.h>
+#include "low_cache.h"
 
 struct Cache *Cache_Create(const char *fic, unsigned nblocks, unsigned nrecords,
                            size_t recordsz, unsigned nderef) {
@@ -27,20 +28,49 @@ struct Cache *Cache_Create(const char *fic, unsigned nblocks, unsigned nrecords,
 	cache.instrument = malloc(sizeof(struct Cache_Instrument));
 	cache.pfree = malloc(sizeof(Cache_Block_header));
 	cache.headers = malloc(sizeof(Cache_Block_header));
+
+	return cache;
 }
 
 //! Fermeture (destruction) du cache.
-Cache_Error Cache_Close(struct Cache *pcache){
+Cache_Error Cache_Close(struct Cache *pcache) {
+	Cache_Error c_err;
 	Cache_sync();
-	fclose(fic);
-	cache.instrument = free();
-	cache.pfree = free();
-	cache.headers = free();
+	pcache->instrument.n_syncs++;
+	if (fclose(fic) != 0) {
+		c_err = Cache_KO;
+		return C_err;
+	}
+	pcache.instrument = free();
+	pcache.pfree = free();
+	pcache.headers = free();
+	c_err = Cache_OK;
+
+	return c_err;
 }
 
 //! Synchronisation du cache.
-Cache_Error Cache_Sync(struct Cache *pcache){
-
+Cache_Error Cache_Sync(struct Cache *pcache) {
+	Cache_Error c_err;
+	Cache_Block_Header *cur_header = pcache->headers;
+	int tmp = 0;
+	while( tmp != pcache->nbocks - 1) {
+		if (tmp%(NSYNC) == 0) {
+			Cache_Sync();
+			pcache->instrument.n_syncs++;
+		}
+		if (cur_header->flags == 1 || cur_header->flags == 3) {
+			if (write(fic, cur_header->data, sizeof(cur_header->data))<0) {
+				c_err = Cache_KO;
+				return c_err;
+			}
+			cur_header->flags -= 1;
+		}
+		&cur_header = &cur_header + sizeof(Cache_Block_Header);
+		tmp++;
+	}
+	c_err = Cache_OK;
+	return c_err;
 }
 
 //! Invalidation du cache.
