@@ -11,6 +11,7 @@
  */
 
 #include <stdlib.h>
+#include <stdio.h>
 #include "low_cache.h"
 
 struct Cache *Cache_Create(const char *fic, unsigned nblocks, unsigned nrecords,
@@ -54,7 +55,7 @@ Cache_Error Cache_Sync(struct Cache *pcache) {
 	Cache_Error c_err;
 	Cache_Block_Header *cur_header = pcache->headers;
 	int tmp = 0;
-	while( tmp != pcache->nbocks - 1) {
+	while( tmp < pcache->nbocks) {
 		if (tmp%(NSYNC) == 0) {
 			Cache_Sync();
 			pcache->instrument.n_syncs++;
