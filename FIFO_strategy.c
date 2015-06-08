@@ -14,12 +14,12 @@
 
  void Strategy_Close(struct Cache *pcache)
  {
-     Cache_List_Delete(C_list(pcache));
+     Cache_List_Delete(C_LIST(pcache));
  }
 
  void Strategy_Invalidate(struct Cache *pcache)
  {
-     Cache_List_Clear(C_list(pcache));
+     Cache_List_Clear(C_LIST(pcache));
  }
 
 
@@ -32,15 +32,15 @@ struct Cache_Block_Header *Strategy_Replace_Block(struct Cache *pcache)
    if ((pbh = Get_Free_Block(pcache)) != NULL)
    {
        // Comme on va l'utiliser, on le met en fin de liste
-       Cache_List_Append(fifo_list, pbh);
+       Cache_List_Append(c_list, pbh);
        return pbh;
    }
 
    // On prend le premier de la liste que l'on va retourner
-   pbh = Cache_List_Remove_First(fifo_list);
+   pbh = Cache_List_Remove_First(c_list);
 
    // Comme on va l'utiliser, on le met en fin de liste
-   Cache_List_Append(fifo_list, pbh);
+   Cache_List_Append(c_list, pbh);
 
    return pbh;
 }
