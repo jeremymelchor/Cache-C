@@ -5,29 +5,27 @@
 #include "random.h"
 #include "time.h"
 
-/*!
- * RAND : pas grand chose à faire ici. 
- *
- * En fait, nous initialisons le germe
- * (seed) du générateur aléatoire à quelque chose d'éminemment variable, pour
- * éviter d'avoir la même séquence à chque exécution...
- */
-void *Strategy_Create(struct Cache *pcache) {
-}
+#define FIFO_LIST(pcache)
 
-void Strategy_Close(struct Cache *pcache)
-{
-}
+ void *Strategy_Create(struct Cache *pcache) 
+ {
+     return Cache_List_Create();
+ }
 
+ void Strategy_Close(struct Cache *pcache)
+ {
+     Cache_List_Delete(FIFO_LIST(pcache));
+ }
 
-void Strategy_Invalidate(struct Cache *pcache)
-{
-}
+ void Strategy_Invalidate(struct Cache *pcache)
+ {
+     Cache_List_Clear(FIFO_LIST(pcache));
+ }
 
 
 struct Cache_Block_Header *Strategy_Replace_Block(struct Cache *pcache) 
 {
-    return &pcache->headers[ib];
+    return ;
 }
 
 
