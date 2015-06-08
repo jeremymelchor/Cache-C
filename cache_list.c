@@ -3,6 +3,9 @@
 /*! Création d'une liste de blocs */
 struct Cache_List *Cache_List_Create()
 {
+	Cache_List c = malloc(sizeof(Cache_List));
+	c->next = c;
+	c->prev = c;
 }
 /*! Destruction d'une liste de blocs */
 void Cache_List_Delete(struct Cache_List *list)
