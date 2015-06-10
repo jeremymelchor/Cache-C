@@ -11,7 +11,7 @@ struct Cache_List *Cache_List_Create()
 void Cache_List_Delete(struct Cache_List *list)
 {
 	for(Cache_List *count=list->next; count!=list; count=count->next)
-			Cache_List_Remove_First(list)
+			Cache_List_Remove_First(list);
 	free(list);
 }
 
@@ -34,12 +34,14 @@ void Cache_List_Prepend(struct Cache_List *list, struct Cache_Block_Header *pbh)
 {
 	Cache_List *counter = list->next;
 	Cache_List *new = malloc(sizeof(Cache_List));
+	for(counter=list->next; counter !=list; counter->next){}
 	
 	new->pheader = pbh;
-	new->next = counter;
-	new->prev = counter->prev;
-	counter->prev->next = new;
-	counter->prev = new;
+	new->next=counter;
+	new->prev=counter->prev;
+	counter->prev->next=new;
+	counter->prev=new;
+	list = new;
 }
 
 /*! Retrait du premier élément */
@@ -75,7 +77,8 @@ struct Cache_Block_Header *Cache_List_Remove(struct Cache_List *list, struct Cac
 /*! Remise en l'état de liste vide */
 void Cache_List_Clear(struct Cache_List *list)
 {
-  //TODO: 
+  for(Cache_List *count=list->next; count!=list; count=count->next)
+			Cache_List_Remove_First(list); 
 }
 
 /*! Test de liste vide */
@@ -94,21 +97,25 @@ void Cache_List_Move_To_End(struct Cache_List *list, struct Cache_Block_Header *
 	counter->next->prev=counter->prev;
 	
 	counter->prev = list->prev;
-	counter->next = list->next;
+	counter->next = list;
 	list->prev->next = counter;
 	list->next->prev = counter;
 }
 /*! Transférer un élément  au début */
 void Cache_List_Move_To_Begin(struct Cache_List *list, struct Cache_Block_Header *pbh)
 {
+	//On trouve l'element
 	Cache_List *counter = list->next;
 	for(counter=list->next; counter !=list && counter->pheader !=pbh; counter->next){}
-	
+	//On enlève l'element de son emplacement courant en recollant ses voisins entre eux.
 	counter->prev->next=counter->next;
 	counter->next->prev=counter->prev;
 	
-	counter->prev = list->next;
-	counter->next = list->next->next;
-	list->next->next->prev = counter;
-	list->next->next = counter;
+	//On colle l'element au bon endroit
+	list->prev->next = counter;
+	list->prev = counter;
+	counter->prev = list->prev;
+	counter->next = list;
+	//On passe le pointeur sur le nouveau premier element
+	list = counter;
 }
