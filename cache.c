@@ -67,7 +67,7 @@ struct Cache *Cache_Create(const char *fic, unsigned nblocks, unsigned nrecords,
 
 	cache->instrument = instrument;
 	cache->pfree = &cache->headers[0];
-	cache->headers = CreateHeaders(cache);
+	cache->headers = createHeaders(cache);
 
 	return cache;
 }
