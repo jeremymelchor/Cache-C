@@ -131,17 +131,27 @@ Cache_Error Cache_Invalidate(struct Cache *pcache){
 
 //! Lecture  (à travers le cache).
 Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
-	int x;
-
 	int fd = open(pcache->file, O_RDONLY);
+	Cache_Error c_err;
 	fseek(pcache->fp, 0, irfile);
-	read(fd, &precord, sizeof(struct Cache_Block_Header));
-	
+	if (read(fd, &precord, sizeof(struct Cache_Block_Header))<0) {
+		c_err = CACHE_KO;
+		return c_err;
+	}
+	c_err = CACHE_OK;
+	return c_err;
 }
 
 //! Écriture (à travers le cache).
 Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
-
+	Cache_Error c_err;
+	fseek(pcache->fp, 0, irfile);
+	if (write(pcache->headers, &precord, sizeof(struct Cache_Block_Header))<0) {
+		c_err = CACHE_KO;
+		return c_err;
+	}
+	c_err = CACHE_OK;
+	return c_err;
 }
 //! Résultat de l'instrumentation.
 struct Cache_Instrument *Cache_Get_Instrument(struct Cache *pcache) {
