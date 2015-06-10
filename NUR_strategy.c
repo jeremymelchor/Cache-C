@@ -10,13 +10,13 @@
 ***********************************************************/
 
 /* Flag désignant si un bloc a été référencé */
-#define R_FLAG 0x4
+//#define R_FLAG 0x4
 
 /* Paramètre constant remettant tout les flags R à 0 */
 #define NDEREF 150
 
-/* En-tête de la fonction static utilisée plus loin */
-static void Dereference_If_Needed(struct Cache *pcache);
+static void reset_flag_R(struct Cache *pcache);
+static int EQUATION(struct Cache_Block_Header *block);
 
 /* Structure utilisée pour la stratégie NUR */
 struct Strategie_NUR
@@ -37,23 +37,23 @@ struct Strategie_NUR* STRATEGIE_NUR(struct Cache* pointeur_cache) {
 /* Donne la valeur du boolen : si b est différent de 0, 
  * alors on retourne 1 sinon on retourne 0
  */
-int VALEUR_BOOLEEN(int b) {
-    if (b != 0) return 1;
-    else return 0;
-}
+// int VALEUR_BOOLEEN(int b) {
+//     if (b != 0) return 1;
+//     else return 0;
+// }
 
-/* Fait l'équation n = 2*R+M. Le décalage à gauche de 1 bits nous permet
- * de multiplier par 2. Puis le ou logique va nous permettre d'additionner
- * M à 2*R. L'utilisation d'opérateurs sur les bits est indispensable car 
- * nous avons des bits et non des entiers.
- *
- * Exemple : Si R et M valent 1, alors VALEUR_BOOLEEN(1)<<1 donnera 10 (=2).
- *           Ce qui nous donnera au final 10 | 01 = 11 (=3) 
- */
-int EQUATION(int R,int M) {
-    int equation = VALEUR_BOOLEEN(R)<<1 | VALEUR_BOOLEEN(M);
-    return equation;
-} 
+//  Fait l'équation n = 2*R+M. Le décalage à gauche de 1 bits nous permet
+//  * de multiplier par 2. Puis le ou logique va nous permettre d'additionner
+//  * M à 2*R. L'utilisation d'opérateurs sur les bits est indispensable car 
+//  * nous avons des bits et non des entiers.
+//  *
+//  * Exemple : Si R et M valent 1, alors VALEUR_BOOLEEN(1)<<1 donnera 10 (=2).
+//  *           Ce qui nous donnera au final 10 | 01 = 11 (=3) 
+ 
+// int EQUATION(int R,int M) {
+//     int equation = VALEUR_BOOLEEN(R)<<1 | VALEUR_BOOLEEN(M);
+//     return equation;
+// } 
 
 
 /***********************************************************
@@ -64,11 +64,9 @@ int EQUATION(int R,int M) {
  * structure, en initialisant nderef et le compteur_dereferencement à la 
  * valeur de nderef de la structure du Cache dans low_cache.c
  */
-void *Strategy_Create(struct Cache *pcache) 
-{
+void *Strategy_Create(struct Cache *pcache) {
 	struct Strategie_NUR *pointeur_struct = malloc(sizeof(struct Strategie_NUR));
 
-    //nderef vaut 0
     pointeur_struct->nderef = pcache->nderef;
     pointeur_struct->compteur_dereferencement = pcache->nderef;
 
@@ -76,92 +74,114 @@ void *Strategy_Create(struct Cache *pcache)
 }
 
 /* Arrêter la stratégie */
-void Strategy_Close(struct Cache *pcache)
-{
+void Strategy_Close(struct Cache *pcache) {
+    // On vide le pointeur sur la stratégie afin qu'il puisse
+    // en excuter une autre quand il veut.
 	free(pcache->pstrategy);
 }
 
 /* Remise à zéro de tout les bits de référence R */
-void Strategy_Invalidate(struct Cache *pcache)
-{
-	struct Strategie_NUR *pointeur_struct = STRATEGIE_NUR(pcache);
-
-    if (pointeur_struct->nderef != 0) 
-    {
-        pointeur_struct->compteur_dereferencement = 1;
-        Dereference_If_Needed(pcache);
-    } 
+void Strategy_Invalidate(struct Cache *pcache) {
+    // Réinitialisation des R_FLAG et des compteur de chaque blocs
+    reset_flag_R(pcache);
 }
 
 /* Permet de remplacer un bloc déjà utilisé */
-struct Cache_Block_Header *Strategy_Replace_Block(struct Cache *pcache) 
-{
-    int ib;
-    int rm;
-    struct Cache_Block_Header *pbh_save = NULL;
-    struct Cache_Block_Header *pbh;
+struct Cache_Block_Header *Strategy_Replace_Block(struct Cache *pcache) {
 
-   /* On cherche d'abord un bloc invalide */
-    if ((pbh = Get_Free_Block(pcache)) != NULL) return pbh;
+    int index_block;
+    int equation_max = 4;
+    struct Cache_Block_Header *cbh_final = NULL;
+    struct Cache_Block_Header *cbh;
 
-    /* Ici, min vaut 4. On va parcourir tout les blocs, en partant
-     * de l'indice 0, jusqu'au nombre max de blocks dans le cache.
+   /* On cherche d'abord un bloc libre, si on a NULL : 
+    * ça veut dire qu'on a un bloc de libre 
+    */
+    if ((cbh = Get_Free_Block(pcache)) != NULL) return cbh;
+
+    /* Si on a pas trouvé de bloc libre, on va parcourir tout les blocs,
+     * en partant de l'indice 0, jusqu'au nombre max de blocks dans le cache.
      */
-    for (int min = EQUATION(1,1) + 1, ib = 0; ib < pcache->nblocks; ib++) {
-		pbh = &pcache->headers[ib];
+    for (index_block = 0; index_block < pcache->nblocks; index_block++) {
+		cbh = &pcache->headers[index_block];
 	
-		/* On construit un nombre binaire rm avec le bit de modification
-         * et le bit de référence, et on cherche le bloc avec la valeur de rm
-         * minimale */
-        printf("pbh->flags %d\n",pbh->flags);
-        printf("R_FLAG %d\n",R_FLAG);
-        printf("pbh->flags & R_FLAG %d\n",pbh->flags & R_FLAG);
-        printf("MODIF %d\n",MODIF);
-		rm = EQUATION(pbh->flags & R_FLAG, pbh->flags & MODIF);
-		if (rm == 0) return pbh; /* pas la peine de cherche plus loin */
-		else if (rm < min) {
-	    min = rm;
-	    pbh_save = pbh;
+		/* On va faire l'équation 2*r + m afin de trouver le meilleur
+         * block à remplacer 
+         */
+		int equation = EQUATION(cbh);
+        
+        // Si on trouve un block non modifié et jamais utilisé, alors on prend celui là
+        if (equation == 0) return cbh;
+
+        // Sinon, on va chercher le bloc qui a l'équation rm la plus petite
+		else if (equation < equation_max) {
+	       equation_max = equation;
+	       cbh_final = cbh;
 		}	
     }
 
-    return pbh_save;
+    return cbh_final;
 }
 
+/* Méthode qui est utilisée si on veut lire */
+void Strategy_Read(struct Cache *pcache, struct Cache_Block_Header *cbh) {
 
+    struct Strategie_NUR *strategy = (struct Strategie_NUR*)(pcache)->pstrategy;
 
-void Strategy_Read(struct Cache *pcache, struct Cache_Block_Header *pbh) 
-{
-    Dereference_If_Needed(pcache);
-    pbh->flags |= R_FLAG;
+    // Si le compteur de déréférencements est égal à nderef, on réinitialise
+    if((++strategy->compteur_dereferencement) == strategy->nderef)
+        reset_flag_R(pcache);
+    // On met le flag REFER à 1 (car accès en lecture)
+    cbh->flags |= R_FLAG;
 }  
 
-void Strategy_Write(struct Cache *pcache, struct Cache_Block_Header *pbh)
-{
-    Dereference_If_Needed(pcache);
-    pbh->flags |= R_FLAG;
+/* Méthode qui est utilisée si on veut écrire */
+void Strategy_Write(struct Cache *pcache, struct Cache_Block_Header *cbh) {
+
+    struct Strategie_NUR *strategy = (struct Strategie_NUR*)(pcache)->pstrategy;
+
+    // Si le compteur de déréférencements est égal à nderef, on réinitialise
+    if((++strategy->compteur_dereferencement) == strategy->nderef)
+        reset_flag_R(pcache);
+    // On met le flag REFER à 1 (car accès en écriture)
+    cbh->flags |= R_FLAG;
 } 
 
-char *Strategy_Name()
-{
+/* Le nom de la stratégie */
+char *Strategy_Name() {
     return "NUR";
 }
 
 
+/***********************************************************
+******************** FONCTIONS STATIC **********************
+***********************************************************/
 
+/* Fonction qui permet de réinitialiser tout les R_FLAG
+ * et le compteur de chaque block
+ */
+static void reset_flag_R(struct Cache *pcache){
+        // On récupère la stratégie en cours
+        struct Strategie_NUR *strat = (struct Strategie_NUR*) pcache->pstrategy;
 
-static void Dereference_If_Needed(struct Cache *pcache)
-{
-    struct Strategie_NUR *pstrat = STRATEGIE_NUR(pcache);
-    int ib;
+    // Si on peut déréférencer
+    if(strat->nderef != 0){
+        // On va parcourir tout les blocks du cache et remettre le R_FLAG à 0
+        for (int i = 0 ; i < pcache->nblocks ; i++)
+            pcache->headers[i].flags &= ~R_FLAG;
+        // On remet à 0 le compteur de déréférencement
+        strat->compteur_dereferencement = 0;
+        // Vu qu'on a déréférencé, on va incrémenter le n_deref de instrument pour les statistiques
+            pcache->instrument.n_deref++;
+    }
+}
 
-    /* On déréférence tous les deref accès ; si deref est 0 on ne déréférence jamais */
-    if (pstrat->nderef == 0 || --pstrat->compteur_dereferencement > 0) return;
+/* Fait l'équation n = 2*r + m. */
+static int EQUATION(struct Cache_Block_Header *block) {
+    int rm_equation = 0;
 
-    /* C'est le moment : on remet à 0 tous les bits de déférence */
-    for (ib = 0; ib < pcache->nblocks; ib++) pcache->headers[ib].flags &= ~R_FLAG;
-
-    /* On réarme le compteur et on met à jour l'instrumentation */
-    pstrat->compteur_dereferencement = pstrat->nderef;
-    ++pcache->instrument.n_deref;
+    if ( (block->flags & R_FLAG) > 0 ) rm_equation += 2;
+    if ( (block->flags & MODIF) > 0 ) rm_equation += 1;
+    
+    return rm_equation;
 }

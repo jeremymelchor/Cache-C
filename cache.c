@@ -116,7 +116,7 @@ Cache_Error Cache_Sync(struct Cache *pcache) {
 		int flag = pcache->headers[tmp].flags;
 		int fd = open(pcache->file, O_WRONLY);
 		if (write(fd, ad->data, sizeof(cur_header->data))<0 && ( flag == MODIF+VALID || flag == MODIF ||
-			flag == MODIF+R+VALID || flag == MODIF+R ) ) {
+			flag == MODIF+R_FLAG+VALID || flag == MODIF+R_FLAG ) ) {
 			c_err = CACHE_KO;
 			return c_err;
 		}
