@@ -22,32 +22,51 @@
 #include "strategy.h"
 #include "cache.h"
 
+
+struct Cache_Block_Header* createHeaders(struct Cache* pcache) {
+	struct Cache_Block_Header* tmp = (struct Cache_Block_Header*)malloc( sizeof(struct Cache_Block_Header) * pcache->nblocks );
+	
+	//Si l'allocation de mémoire ne fonctionne pas :
+	if(!tmp) {
+		return NULL;
+	}
+
+	//Sinon :
+	for(int i = 0; i < pcache->nblocks; i++) {
+		tmp[i].ibcache = i;
+		tmp[i].data = (char*)malloc( pcache->recordsz * pcache->nrecords );
+		tmp[i].ibfile = -1;
+	}
+
+	return tmp;
+}
+
 struct Cache *Cache_Create(const char *fic, unsigned nblocks, unsigned nrecords,
                            size_t recordsz, unsigned nderef) {
 
 	struct Cache *cache = malloc(sizeof(struct Cache));
-	char * name = fic;
 
-	FILE *fp = fopen(fic, "rw");
-	cache->file = name;
-	cache->fp = fp;
+	FILE *file;
+	if( (file = fopen(fic, "r+b")) == NULL)
+		file = fopen(fic, "w+b");
+
+	cache->file = fic;
+	cache->fp = file;
 	cache->nblocks = nblocks;
 	cache->nrecords = nrecords;
 	cache->recordsz = recordsz;
 	cache->nderef = nderef;
 
-	struct Cache_Instrument instrument;
+	struct Cache_Instrument instrument = (struct Cache_Instrument) {0, 0, 0, 0, 0};
 	instrument.n_reads = 0;
 	instrument.n_writes = 0;
 	instrument.n_hits = 0;
 	instrument.n_syncs = 0;
 	instrument.n_deref = 0;
 
-	struct Cache_Block_Header *header = malloc(sizeof(struct Cache_Block_Header));
-
 	cache->instrument = instrument;
-	cache->pfree = header;
-	cache->headers = header;
+	cache->pfree = &cache->headers[0];
+	cache->headers = CreateHeaders(cache);
 
 	return cache;
 }
@@ -55,15 +74,22 @@ struct Cache *Cache_Create(const char *fic, unsigned nblocks, unsigned nrecords,
 //! Fermeture (destruction) du cache.
 Cache_Error Cache_Close(struct Cache *pcache) {
 	Cache_Error c_err;
+
+	//Synchronise le cache
 	Cache_Sync(pcache);
-	pcache->instrument.n_syncs++;
+
+	//vérifie si la fermeture s'est bien passé:
 	if (fclose(pcache->fp) != 0) {
 		c_err = CACHE_KO;
 		return c_err;
 	}
+
+	//Free des structs
 	free(&pcache->instrument);
-	free(&pcache->pfree);
-	free(&pcache->headers);
+	free(pcache);
+
+	pcache = pcache->headers = NULL;
+
 	c_err = CACHE_OK;
 
 	return c_err;
@@ -86,21 +112,22 @@ Cache_Error Cache_Sync(struct Cache *pcache) {
 			pcache->instrument.n_syncs++;
 		}
 		//Si le bit M vaut 1, on écrit le bloc dans le fichier, puis on remet M à 0
-		if (ad->flags <= 7 && ad->flags%2 == 1) {
-			//Ecriture dans le fichier
-			int fd = open(pcache->file, O_WRONLY);
-			if (write(fd, ad->data, sizeof(cur_header->data))<0) {
-				c_err = CACHE_KO;
-				return c_err;
-			}
-			//On diminue le flags de 1 pour supprimer le bit M
-			cur_header->flags -= 1;
+		//Ecriture dans le fichier
+		int flag = pcache->headers[tmp].flags;
+		int fd = open(pcache->file, O_WRONLY);
+		if (write(fd, ad->data, sizeof(cur_header->data))<0 && ( flag == MODIF+VALID || flag == MODIF ||
+			flag == MODIF+R_FLAG+VALID || flag == MODIF+R_FLAG ) ) {
+			c_err = CACHE_KO;
+			return c_err;
 		}
+		//On diminue suprime la modification M
+		pcache->headers[tmp].flags &= ~MODIF;
 		//On change de Cache_Block_Header puis on incrémente le nombre de Cache_Block_Header visité
 		address = address + sizeof(struct Cache_Block_Header);
 		tmp++;
 	}
 	//On retourne le Cache_Error
+	pcache->instrument.n_syncs++;
 	c_err = CACHE_OK;
 	return c_err;
 }
@@ -117,9 +144,7 @@ Cache_Error Cache_Invalidate(struct Cache *pcache){
 	while( tmp < pcache->nblocks) {
 		struct Cache_Block_Header *ad = (struct Cache_Block_Header *)address;
 		//Si le bit V vaut 1 on le remet à 0
-		if (ad->flags >= 4 && ad->flags <= 7) {
-			cur_header->flags -= 4;
-		}
+		cur_header->flags &= ~VALID;
 		//On change de Cache_Block_Header puis on incrémente le nombre de Cache_Block_Header visité
 		address = address + sizeof(struct Cache_Block_Header);
 		tmp++;
@@ -131,19 +156,47 @@ Cache_Error Cache_Invalidate(struct Cache *pcache){
 
 //! Lecture  (à travers le cache).
 Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
-	int x;
-
 	int fd = open(pcache->file, O_RDONLY);
+	Cache_Error c_err;
 	fseek(pcache->fp, 0, irfile);
-	read(fd, &precord, sizeof(struct Cache_Block_Header));
-	
+	if (read(fd, &precord, sizeof(struct Cache_Block_Header))<0) {
+		c_err = CACHE_KO;
+		return c_err;
+	}
+	c_err = CACHE_OK;
+	return c_err;
 }
 
 //! Écriture (à travers le cache).
 Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
-
+	Cache_Error c_err;
+	fseek(pcache->fp, 0, irfile);
+	if (write(pcache->headers, &precord, sizeof(struct Cache_Block_Header))<0) {
+		c_err = CACHE_KO;
+		return c_err;
+	}
+	c_err = CACHE_OK;
+	return c_err;
 }
 //! Résultat de l'instrumentation.
 struct Cache_Instrument *Cache_Get_Instrument(struct Cache *pcache) {
 	return &pcache->instrument;
+} 
+
+/* Permet de rechercher un bloc libre dans le cache.
+ * Si il n'y en a pas, on return NULL.
+ */
+struct Cache_Block_Header *Get_Free_Block(struct Cache *pcache){
+	struct Cache_Block_Header *cache_block_header;
+	
+	// on parcourt tout les blocks du cache
+	for (int i = 0; i < pcache->nblocks; i++) {
+		cache_block_header =  &(pcache->headers[i]);
+
+		// Si on trouve un block libre
+		if ( (cache_block_header->flags & VALID) == 0 ) return cache_block_header;
+	}
+
+	// On a pas trouvé de blocs vides
+	return NULL;
 }
