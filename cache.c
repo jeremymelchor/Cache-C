@@ -89,7 +89,8 @@ Cache_Error Cache_Close(struct Cache *pcache) {
 	free(&pcache->instrument);
 	free(pcache);
 
-	pcache = pcache->headers = NULL;
+	pcache->headers = NULL;
+	pcache = NULL;
 
 	c_err = CACHE_OK;
 
