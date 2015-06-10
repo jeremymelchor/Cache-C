@@ -157,3 +157,21 @@ Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
 struct Cache_Instrument *Cache_Get_Instrument(struct Cache *pcache) {
 	return &pcache->instrument;
 }
+
+/* Permet de rechercher un bloc libre dans le cache.
+ * Si il n'y en a pas, on return NULL.
+ */
+struct Cache_Block_Header *Get_Free_Block(struct Cache *pcache){
+	struct Cache_Block_Header *cache_block_header;
+	
+	// on parcourt tout les blocks du cache
+	for (int i = 0; i < pcache->nblocks; i++) {
+		cache_block_header =  &(pcache->headers[i]);
+
+		// Si on trouve un block libre
+		if ( (cache_block_header->flags & VALID) == 0 ) return cache_block_header;
+	}
+
+	// On a pas trouvé de blocs vides
+	return NULL;
+}

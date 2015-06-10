@@ -26,7 +26,9 @@ struct Strategie_NUR
 };
 
 /* Permet de récupérer la valeur de pstrategy
- * de la structure Cache en type structure Strategie_NUR
+ * de la structure Cache en type structure Strategie_NUR.
+ * On le cast parce que pstrategy est un void  *, cela afin
+ * de pouvoir n'importe quelle stratégie pour un cache.
  */
 struct Strategie_NUR* STRATEGIE_NUR(struct Cache* pointeur_cache) {
     return (struct Strategie_NUR *) pointeur_cache->pstrategy;

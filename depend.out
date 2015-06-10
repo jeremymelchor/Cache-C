@@ -1,5 +1,5 @@
-cache.o: cache.c low_cache.h cache.h
-cache_list.o: cache_list.c cache_list.h
+cache.o: cache.c low_cache.h cache.h cache_list.h random.h strategy.h
+cache_list.o: cache_list.c cache_list.h low_cache.h cache.h
 FIFO_strategy.o: FIFO_strategy.c strategy.h low_cache.h cache.h \
  cache_list.h
 low_cache.o: low_cache.c
