@@ -22,6 +22,7 @@
 #include "strategy.h"
 #include "cache.h"
 
+
 struct Cache_Block_Header* createHeaders(struct Cache* pcache) {
 	struct Cache_Block_Header* tmp = (struct Cache_Block_Header*)malloc( sizeof(struct Cache_Block_Header) * pcache->nblocks );
 	
@@ -45,11 +46,12 @@ struct Cache *Cache_Create(const char *fic, unsigned nblocks, unsigned nrecords,
 
 	struct Cache *cache = malloc(sizeof(struct Cache));
 
+	FILE *file;
 	if( (file = fopen(fic, "r+b")) == NULL)
 		file = fopen(fic, "w+b");
 
 	cache->file = fic;
-	cache->fp = fp;
+	cache->fp = file;
 	cache->nblocks = nblocks;
 	cache->nrecords = nrecords;
 	cache->recordsz = recordsz;
@@ -111,13 +113,15 @@ Cache_Error Cache_Sync(struct Cache *pcache) {
 		}
 		//Si le bit M vaut 1, on écrit le bloc dans le fichier, puis on remet M à 0
 		//Ecriture dans le fichier
+		int flag = pcache->headers[tmp].flags;
 		int fd = open(pcache->file, O_WRONLY);
-		if (write(fd, ad->data, sizeof(cur_header->data))<0) {
+		if (write(fd, ad->data, sizeof(cur_header->data))<0 && ( flag == MODIF+VALID || flag == MODIF ||
+			flag == MODIF+R+VALID || flag == MODIF+R ) ) {
 			c_err = CACHE_KO;
 			return c_err;
 		}
 		//On diminue suprime la modification M
-		pcache->headers[i].flags &= ~M;
+		pcache->headers[tmp].flags &= ~MODIF;
 		//On change de Cache_Block_Header puis on incrémente le nombre de Cache_Block_Header visité
 		address = address + sizeof(struct Cache_Block_Header);
 		tmp++;
@@ -140,7 +144,7 @@ Cache_Error Cache_Invalidate(struct Cache *pcache){
 	while( tmp < pcache->nblocks) {
 		struct Cache_Block_Header *ad = (struct Cache_Block_Header *)address;
 		//Si le bit V vaut 1 on le remet à 0
-		cur_header->flags &= ~V;
+		cur_header->flags &= ~VALID;
 		//On change de Cache_Block_Header puis on incrémente le nombre de Cache_Block_Header visité
 		address = address + sizeof(struct Cache_Block_Header);
 		tmp++;
