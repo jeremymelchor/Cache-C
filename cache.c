@@ -32,7 +32,8 @@ struct Cache_Block_Header* createHeaders(struct Cache* pcache) {
 	}
 
 	//Sinon :
-	for(int i = 0; i < pcache->nblocks; i++) {
+	int i;
+	for(i = 0; i < pcache->nblocks; i++) {
 		tmp[i].ibcache = i;
 		tmp[i].data = (char*)malloc( pcache->recordsz * pcache->nrecords );
 		tmp[i].ibfile = -1;
@@ -87,10 +88,9 @@ Cache_Error Cache_Close(struct Cache *pcache) {
 	//Free des structs
 	free(&pcache->instrument);
 	free(pcache);
-
-	struct Cache_Block_Header block;
-
-	pcache = pcache->headers = &block;
+	
+	pcache->headers = NULL;
+	pcache = NULL;
 
 	c_err = CACHE_OK;
 
@@ -184,7 +184,8 @@ struct Cache_Block_Header *Get_Free_Block(struct Cache *pcache){
 	struct Cache_Block_Header *cache_block_header;
 	
 	// on parcourt tout les blocks du cache
-	for (int i = 0; i < pcache->nblocks; i++) {
+	int i;
+	for (i = 0; i < pcache->nblocks; i++) {
 		cache_block_header =  &(pcache->headers[i]);
 
 		// Si on trouve un block libre
