@@ -7,7 +7,7 @@
  * connaitre les détails de l'implémentation du cache (struct Cache) : c'est un
  * exemple de type \b opaque. 
  *
- * \author Jean-Paul Rigault 
+ * \author Nicolas
  */
 
 #include <stdlib.h>
@@ -209,7 +209,7 @@ Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
 	header = Cache_Find_Block(pcache, irfile, precord);
 
 	// On copie l'enregistrement du cache vers le buffer precord
-	memcpy(precord, ADDR(pcache,irfile,header), pcache->recordsz);
+	memcpy(precord, &header, pcache->recordsz);
 	
 	// On appelle la fonction read de la stratégie
 	Strategy_Read(pcache,header);
@@ -227,7 +227,7 @@ Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
 	 header = Cache_Find_Block(pcache, irfile, precord);
 
 	 // On recopie l'enregistrement dans le cache
-	 memcpy(ADDR(pcache, irfile, header), precord,pcache->recordsz);
+	 memcpy(&header, precord,pcache->recordsz);
 	 header->flags &= MODIF; // On met M à 1
 
 	 // On appel la fonction d'écriture de la stratégie
