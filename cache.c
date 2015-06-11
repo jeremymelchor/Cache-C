@@ -23,7 +23,7 @@
 #include "strategy.h"
 #include "cache.h"
 
- 
+
 
 static struct Cache_Block_Header *Find_Block(struct Cache *pcache, int irfile) {
     int ib;
@@ -263,7 +263,7 @@ Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
 	//création d'un header temporaire
 	struct Cache_Block_Header *header;
 
-	//Incrémentation le nombre d'écritures
+	//Incrémentation du nombre d'écritures
     pcache->instrument.n_writes++;
 
     //Recherche du Header
@@ -272,7 +272,7 @@ Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
     	return CACHE_KO;
     }
     //copie des données
-    memcpy(ADDR(pcache, irfile, header), precord, pcache->recordsz);
+    memcpy(&header, precord, pcache->recordsz);
 
     //Modification du flag
     header->flags |= MODIF;
