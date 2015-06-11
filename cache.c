@@ -23,6 +23,97 @@
 #include "strategy.h"
 #include "cache.h"
 
+ 
+
+static struct Cache_Block_Header *Find_Block(struct Cache *pcache, int irfile) {
+    int ib;
+    //indice du bloc
+    int ibfile = irfile / pcache->nrecords;
+
+    //recherche du block
+    for (ib = 0; ib < pcache->nblocks; ib++) {
+		struct Cache_Block_Header *header = &pcache->headers[ib];
+
+		if (header->flags & VALID && header->ibfile == ibfile) {
+	    	pcache->instrument.n_hits++;
+	    	return header;
+		}
+    }
+
+    return NULL;
+}
+
+static Cache_Error Read_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
+    long loff, leof;
+
+    // On cherche la longueur courante du fichier
+    if (fseek(pcache->fp, 0, SEEK_END) < 0)
+    	return CACHE_KO;
+
+    leof = ftell(pcache->fp);
+
+    //Si l'on est au dela de la fin de fichier, on cree un bloc de zeros
+    loff = DADDR(pcache, header->ibfile);
+
+    // Le bloc cherché est au dela de la fin de fichier
+    if (loff >= leof) {
+        // On n'effectue aucune entrée-sortie, se contentant de mettre le bloc à 0
+        memset(header->data, '\0', pcache->blocksz); 
+    } else {
+    	// Le bloc existe dans le fichier, donc on s'y rend
+        if (fseek(pcache->fp, loff, SEEK_SET) != 0)
+        	return CACHE_KO;
+        if (fread(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
+        	return CACHE_KO; 
+    } 
+
+    // On Valide le block
+    header->flags |= VALID;
+
+    return CACHE_OK;
+}
+
+ static Cache_Error Write_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
+    // On positionne le pointeur à l'adresse du bloc dans le fichier
+    fseek(pcache->fp, DADDR(pcache, header->ibfile), SEEK_SET);
+
+    /* On écrit les données du bloc */
+    if (fwrite(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
+	return CACHE_KO;
+
+    /* On efface la marque de modification */  
+    header->flags &= ~MODIF;
+
+    return CACHE_OK;
+}
+
+struct Cache_Block_Header *Get_Block(struct Cache *pcache, int irfile)
+{
+    struct Cache_Block_Header *header;
+
+    //Si l'enregistrement n'est pas dans le bloc
+    if ((header = Find_Block(pcache, irfile)) == NULL)
+    {
+        // On demande un block à Strategy_Replace_Block
+	header = Strategy_Replace_Block(pcache);
+	if (header == NULL) return NULL;
+
+	// Si le bloc libéré est valide et modifié, on le sauve sur le fichier
+	if ((header->flags & VALID) && (header->flags & MODIF)
+            && (Write_Block(pcache, header) != CACHE_OK))
+	    return NULL; 
+	
+    // On remplit le bloc libre et son entête avec l'information irfile
+	header->flags = 0;
+	// indice du bloc dans le fichier
+	header->ibfile = irfile / pcache->nrecords;
+	if (Read_Block(pcache, header) != CACHE_OK) return NULL;
+    }
+
+    // Soit l'enregistrement était déjà dans le cache, soit on vient de l'y mettre
+    return header;
+}
+
 struct Cache_Block_Header* createHeaders(struct Cache* pcache) {
 	struct Cache_Block_Header* tmp = (struct Cache_Block_Header*)malloc( sizeof(struct Cache_Block_Header) * pcache->nblocks );
 	
@@ -132,95 +223,6 @@ Cache_Error Cache_Invalidate(struct Cache *pcache){
 	//On retourne le Cache_Error
 	c_err = CACHE_OK;
 	return c_err;
-}
-
-static struct Cache_Block_Header *Find_Block(struct Cache *pcache, int irfile) {
-    int ib;
-    //indice du bloc
-    int ibfile = irfile / pcache->nrecords;
-
-    //recherche du block
-    for (ib = 0; ib < pcache->nblocks; ib++) {
-		struct Cache_Block_Header *header = &pcache->headers[ib];
-
-		if (header->flags & VALID && header->ibfile == ibfile) {
-	    	pcache->instrument.n_hits++;
-	    	return header;
-		}
-    }
-
-    return NULL;
-}
-
-static Cache_Error Read_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
-    long loff, leof;
-
-    // On cherche la longueur courante du fichier
-    if (fseek(pcache->fp, 0, SEEK_END) < 0)
-    	return CACHE_KO;
-
-    leof = ftell(pcache->fp);
-
-    //Si l'on est au dela de la fin de fichier, on cree un bloc de zeros
-    loff = DADDR(pcache, header->ibfile);
-
-    // Le bloc cherché est au dela de la fin de fichier
-    if (loff >= leof) {
-        // On n'effectue aucune entrée-sortie, se contentant de mettre le bloc à 0
-        memset(header->data, '\0', pcache->blocksz); 
-    } else {
-    	// Le bloc existe dans le fichier, donc on s'y rend
-        if (fseek(pcache->fp, loff, SEEK_SET) != 0)
-        	return CACHE_KO;
-        if (fread(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
-        	return CACHE_KO; 
-    } 
-
-    // On Valide le block
-    header->flags |= VALID;
-
-    return CACHE_OK;
-}
-
-static Cache_Error Write_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
-    // On positionne le pointeur à l'adresse du bloc dans le fichier
-    fseek(pcache->fp, DADDR(pcache, header->ibfile), SEEK_SET);
-
-    /* On écrit les données du bloc */
-    if (fwrite(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
-	return CACHE_KO;
-
-    /* On efface la marque de modification */  
-    header->flags &= ~MODIF;
-
-    return CACHE_OK;
-}
-
-struct Cache_Block_Header *Get_Block(struct Cache *pcache, int irfile)
-{
-    struct Cache_Block_Header *header;
-
-    //Si l'enregistrement n'est pas dans le bloc
-    if ((header = Find_Block(pcache, irfile)) == NULL)
-    {
-        // On demande un block à Strategy_Replace_Block
-	header = Strategy_Replace_Block(pcache);
-	if (header == NULL) return NULL;
-
-	// Si le bloc libéré est valide et modifié, on le sauve sur le fichier
-	if ((header->flags & VALID) && (header->flags & MODIF)
-            && (Write_Block(pcache, header) != CACHE_OK))
-	    return NULL; 
-	
-    // On remplit le bloc libre et son entête avec l'information irfile
-	header->flags = 0;
-	// indice du bloc dans le fichier
-	header->ibfile = irfile / pcache->nrecords;
-	if (Read_Block(pcache, header) != CACHE_OK) return NULL;
-    }
-
-    // Soit l'enregistrement était déjà dans le cache, soit on vient de l'y mettre
-    return header;
 }
 
 //!Synchronisation si nécéssaire :
