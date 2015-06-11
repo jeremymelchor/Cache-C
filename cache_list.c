@@ -74,27 +74,37 @@ struct Cache_Block_Header *Cache_List_Remove_Last(struct Cache_List *list)
 	free(slave);
 	return pbh;
 }
+
 /*! Retrait d'un élément quelconque */
 struct Cache_Block_Header *Cache_List_Remove(struct Cache_List *list, struct Cache_Block_Header *pbh)
 {
 	struct Cache_List *slave;
-	for(slave=list->next; slave !=list && slave->pheader != pbh; slave=slave->next){}
-	int i;
-	struct Cache_Block_Header *hhh = malloc(sizeof(struct Cache_Block_Header));
-	printf(":(\n");
-	hhh = slave->pheader;
-	printf("OUIIII\n");
-	/*i = hhh->ibcache;
-	printf("hhh %d\n", i);*/
-	printf("%d == \n", pbh->ibcache);
-	if(slave->pheader == pbh){
-		printf("TROUVE\n");
-		slave->prev->next = slave->next; 
-		slave->next->prev = slave->prev; 
+
+	for (slave=list->next; slave != list; slave=slave->next) {
+		if (slave->pheader == pbh) {
+			slave->prev->next = slave->next;
+			slave->next->prev = slave->prev;
+		}
 	}
-	else
-		printf("PAS TROUVE\n");
-	return slave->pheader; 
+	return pbh;
+	// struct Cache_List *slave;
+	// for(slave=list->next; slave !=list && slave->pheader != pbh; slave=slave->next){}
+	// int i;
+	// struct Cache_Block_Header *hhh = malloc(sizeof(struct Cache_Block_Header));
+	// //printf(":(\n");
+	// hhh = slave->pheader;
+	// //printf("OUIIII\n");
+	// i = hhh->ibcache;
+	// printf("hhh %d\n", i);
+	// //printf("%d == \n", pbh->ibcache);
+	// if(slave->pheader == pbh){
+	// 	//printf("TROUVE\n");
+	// 	slave->prev->next = slave->next; 
+	// 	slave->next->prev = slave->prev; 
+	// }
+	// else
+	// 	//printf("PAS TROUVE\n");
+	// return slave->pheader; 
 }
 
 /*! Remise en l'état de liste vide */
