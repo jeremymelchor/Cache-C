@@ -115,8 +115,8 @@ Cache_Error Cache_Sync(struct Cache *pcache) {
 		//Ecriture dans le fichier
 		int flag = pcache->headers[i].flags;
 		int fd = open(pcache->file, O_WRONLY);
-		if (write(fd, pcache->headers[i].data, sizeof(pcache->headers[i].data))<0 && ( flag == MODIF+VALID || flag == MODIF ||
-			flag == MODIF+R_FLAG+VALID || flag == MODIF+R_FLAG ) ) {
+		if (write(fd, pcache->headers[i].data, sizeof(pcache->headers[i].data))<0 && ( (flag & MODIF && flag & VALID) ||
+			flag & MODIF || (flag & MODIF && flag & R_FLAG && flag & VALID) || (flag & MODIF && flag && R_FLAG) ) ) {
 			c_err = CACHE_KO;
 			return c_err;
 		}
@@ -145,31 +145,98 @@ Cache_Error Cache_Invalidate(struct Cache *pcache){
 	return c_err;
 }
 
-//! Lecture  (à travers le cache).
-Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
-	int fd = fileno(pcache->fp);
+//! Synchronisation d'une donnée
+Cache_Error Cache_Sync_Header(struct Cache *pcache, struct Cache_Block_Header *header) {
+	//Création du Cache_Error
 	Cache_Error c_err;
-	fseek(pcache->fp, 0, irfile);
-	if (read(fd, &precord, sizeof(struct Cache_Block_Header))<0) {
-		c_err = CACHE_KO;
-		return c_err;
+	//On parcourt la liste de Cache_Block_Header
+	for(int i = 0; i < pcache->nblocks; i++) {
+		int flag = pcache->headers[i].flags;
+		if (((pcache->headers[i]).ibfile == header->ibfile) && ( (flag & MODIF && flag & VALID) ||
+			flag & MODIF || (flag & MODIF && flag & R_FLAG && flag & VALID) || (flag & MODIF && flag && R_FLAG) )) {
+			int fd = open(pcache->file, O_WRONLY);
+			if (write(fd, pcache->headers[i].data, sizeof(pcache->headers[i].data))<0) {
+				c_err = CACHE_KO;
+				return c_err;
+			}
+			//On suprime la modification M
+			pcache->headers[i].flags &= ~MODIF;
+		}
+		
 	}
-	pcache->instrument.n_reads++;
+	//On retourne le Cache_Error
+	pcache->instrument.n_syncs++;
 	c_err = CACHE_OK;
 	return c_err;
 }
 
+struct Cache_Block_Header * Cache_Find_Block(struct Cache * pcache, int irfile, const void * precord) {
+	struct Cache_Block_Header *header = NULL;
+	// On cherche l'enregistrement
+	int nrecords = pcache->nrecords;
+	int ibfile = irfile/nrecords;
+	for(int i = 0; i < pcache->nblocks; i++){
+		//on ne vérifie que les headers valides 
+		if(pcache->headers[i].flags & VALID) {
+			//On ne compare les ibfile avec celle recherché
+			if(ibfile == pcache->headers[i].ibfile)
+				header = &pcache->headers[i];
+		}
+	}
+
+	// Si le header n'as pas été trouvé
+	if(header == NULL){
+		// on réccupère un bloc
+		header = Strategy_Replace_Block(pcache);
+		// On synchronise la donnée
+		Cache_Sync_Header(pcache, header);
+		// Synchronisation des infos
+		header->ibfile = irfile/pcache->nrecords;
+		header->flags = header->flags|VALID;
+		// Placement du pointeur sur la donnée recherché
+		fseek(pcache->fp, irfile * pcache->recordsz, SEEK_SET);
+	} else {
+		// On incrémente le nombre de hits (si l'enregistrement est déjà dans le cache)
+		pcache->instrument.n_hits++;
+	}
+	return header;
+}
+
+//! Lecture  (à travers le cache).
+Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
+	//On cherche tout d'abord un block
+	struct Cache_Block_Header * header;
+	header = Cache_Find_Block(pcache, irfile, precord);
+
+	// On copie l'enregistrement du cache vers le buffer precord
+	memcpy(precord, ADDR(pcache,irfile,header), pcache->recordsz);
+	
+	// On appelle la fonction read de la stratégie
+	Strategy_Read(pcache,header);
+
+	// On incrémente le nombre de lectures
+	pcache->instrument.n_reads++;
+
+	return CACHE_OK;
+}
+
 //! Écriture (à travers le cache).
 Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
-	Cache_Error c_err;
-	if (memcpy(&pcache->headers[irfile].data, &precord,
-		sizeof(struct Cache_Block_Header) - sizeof(unsigned int) - 2*sizeof(int)) != &pcache->headers[irfile]) {
-		c_err = CACHE_KO;
-		return c_err;
-	}
-	pcache->instrument.n_writes++;
-	c_err = CACHE_OK;
-	return c_err;
+	 // On cherche tout d'aabord un block
+	 struct Cache_Block_Header * header;
+	 header = Cache_Find_Block(pcache, irfile, precord);
+
+	 // On recopie l'enregistrement dans le cache
+	 memcpy(ADDR(pcache, irfile, header), precord,pcache->recordsz);
+	 header->flags &= MODIF; // On met M à 1
+
+	 // On appel la fonction d'écriture de la stratégie
+	 Strategy_Write(pcache,header);
+
+	 // On incrémente le nombre d'écriture
+	 pcache->instrument.n_writes++;
+
+	 return CACHE_OK;
 }
 //! Résultat de l'instrumentation.
 struct Cache_Instrument *Cache_Get_Instrument(struct Cache *pcache) {
