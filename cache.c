@@ -146,61 +146,93 @@ Cache_Error Cache_Invalidate(struct Cache *pcache){
 	return c_err;
 }
 
-//! Synchronisation d'une donnée
-Cache_Error Cache_Sync_Header(struct Cache *pcache, struct Cache_Block_Header *header) {
-	//Création du Cache_Error
-	Cache_Error c_err;
-	//On parcourt la liste de Cache_Block_Header
-	for(int i = 0; i < pcache->nblocks; i++) {
-		int flag = pcache->headers[i].flags;
-		if (((pcache->headers[i]).ibfile == header->ibfile) && ( (flag & MODIF && flag & VALID) ||
-			flag & MODIF || (flag & MODIF && flag & R_FLAG && flag & VALID) || (flag & MODIF && flag && R_FLAG) )) {
-			int fd = open(pcache->file, O_WRONLY);
-			if (write(fd, pcache->headers[i].data, sizeof(pcache->headers[i].data))<0) {
-				c_err = CACHE_KO;
-				return c_err;
-			}
-			//On suprime la modification M
-			pcache->headers[i].flags &= ~MODIF;
+static struct Cache_Block_Header *Find_Block(struct Cache *pcache, int irfile) {
+    int ib;
+    //indice du bloc
+    int ibfile = irfile / pcache->nrecords;
+
+    //recherche du block
+    for (ib = 0; ib < pcache->nblocks; ib++) {
+		struct Cache_Block_Header *header = &pcache->headers[ib];
+
+		if (header->flags & VALID && header->ibfile == ibfile) {
+	    	pcache->instrument.n_hits++;
+	    	return header;
 		}
-		
-	}
-	//On retourne le Cache_Error
-	pcache->instrument.n_syncs++;
-	c_err = CACHE_OK;
-	return c_err;
+    }
+
+    return NULL;
 }
 
-struct Cache_Block_Header * Cache_Find_Block(struct Cache * pcache, int irfile, const void * precord) {
-	struct Cache_Block_Header *header = NULL;
-	// On cherche l'enregistrement
-	int nrecords = pcache->nrecords;
-	int ibfile = irfile/nrecords;
-	for(int i = 0; i < pcache->nblocks; i++){
-		//on ne vérifie que les headers valides 
-		if(pcache->headers[i].flags & VALID) {
-			//On ne compare les ibfile avec celle recherché
-			if(ibfile == pcache->headers[i].ibfile)
-				header = &pcache->headers[i];
-		}
-	}
+static Cache_Error Read_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
+    long loff, leof;
 
-	// Si le header n'as pas été trouvé
-	if(header == NULL){
-		// on réccupère un bloc
-		header = Strategy_Replace_Block(pcache);
-		// On synchronise la donnée
-		Cache_Sync_Header(pcache, header);
-		// Synchronisation des infos
-		header->ibfile = irfile/pcache->nrecords;
-		header->flags = header->flags|VALID;
-		// Placement du pointeur sur la donnée recherché
-		fseek(pcache->fp, irfile * pcache->recordsz, SEEK_SET);
-	} else {
-		// On incrémente le nombre de hits (si l'enregistrement est déjà dans le cache)
-		pcache->instrument.n_hits++;
-	}
-	return header;
+    // On cherche la longueur courante du fichier
+    if (fseek(pcache->fp, 0, SEEK_END) < 0)
+    	return CACHE_KO;
+
+    leof = ftell(pcache->fp);
+
+    //Si l'on est au dela de la fin de fichier, on cree un bloc de zeros
+    loff = DADDR(pcache, header->ibfile);
+
+    // Le bloc cherché est au dela de la fin de fichier
+    if (loff >= leof) {
+        // On n'effectue aucune entrée-sortie, se contentant de mettre le bloc à 0
+        memset(header->data, '\0', pcache->blocksz); 
+    } else {
+    	// Le bloc existe dans le fichier, donc on s'y rend
+        if (fseek(pcache->fp, loff, SEEK_SET) != 0)
+        	return CACHE_KO;
+        if (fread(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
+        	return CACHE_KO; 
+    } 
+
+    // On Valide le block
+    header->flags |= VALID;
+
+    return CACHE_OK;
+}
+
+static Cache_Error Write_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
+    // On positionne le pointeur à l'adresse du bloc dans le fichier
+    fseek(pcache->fp, DADDR(pcache, header->ibfile), SEEK_SET);
+
+    /* On écrit les données du bloc */
+    if (fwrite(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
+	return CACHE_KO;
+
+    /* On efface la marque de modification */  
+    header->flags &= ~MODIF;
+
+    return CACHE_OK;
+}
+
+struct Cache_Block_Header *Get_Block(struct Cache *pcache, int irfile)
+{
+    struct Cache_Block_Header *header;
+
+    //Si l'enregistrement n'est pas dans le bloc
+    if ((header = Find_Block(pcache, irfile)) == NULL)
+    {
+        // On demande un block à Strategy_Replace_Block
+	header = Strategy_Replace_Block(pcache);
+	if (header == NULL) return NULL;
+
+	// Si le bloc libéré est valide et modifié, on le sauve sur le fichier
+	if ((header->flags & VALID) && (header->flags & MODIF)
+            && (Write_Block(pcache, header) != CACHE_OK))
+	    return NULL; 
+	
+    // On remplit le bloc libre et son entête avec l'information irfile
+	header->flags = 0;
+	// indice du bloc dans le fichier
+	header->ibfile = irfile / pcache->nrecords;
+	if (Read_Block(pcache, header) != CACHE_OK) return NULL;
+    }
+
+    // Soit l'enregistrement était déjà dans le cache, soit on vient de l'y mettre
+    return header;
 }
 
 //!Synchronisation si nécéssaire :
@@ -218,20 +250,21 @@ static Cache_Error Do_Sync_If_Needed(struct Cache *pcache) {
 
 //! Lecture  (à travers le cache).
 Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
-	//On cherche tout d'abord un block
-	struct Cache_Block_Header * header;
-	header = Cache_Find_Block(pcache, irfile, precord);
+	struct Cache_Block_Header *header;
+    pcache->instrument.n_reads++;
 
-	// On copie l'enregistrement du cache vers le buffer precord
-	memcpy(precord, &header, pcache->recordsz);
-	
-	// On appelle la fonction read de la stratégie
-	Strategy_Read(pcache,header);
+    //Si le block n'existe pas :
+    header = Get_Block(pcache, irfile);
+    if (header == NULL)
+    	return CACHE_KO;
+    
+    //On copie la mémoire
+    memcpy(precord, ADDR(pcache, irfile, header), pcache->recordsz);
 
-	// On incrémente le nombre de lectures
-	pcache->instrument.n_reads++;
+    //Appel à la lecture de la strategie
+    Strategy_Read(pcache, header);
 
-	return CACHE_OK;
+    return Do_Sync_If_Needed(pcache);
 }
 
 //! Écriture (à travers le cache).
@@ -243,7 +276,8 @@ Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
     pcache->instrument.n_writes++;
 
     //Recherche du Header
-    if ((header = Cache_Find_Block(pcache, irfile, precord)) == NULL){
+    header = Get_Block(pcache, irfile);
+    if (header == NULL){
     	return CACHE_KO;
     }
     //copie des données
