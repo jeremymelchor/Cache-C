@@ -52,7 +52,10 @@ struct Cache *Cache_Create(const char *fic, unsigned nblocks, unsigned nrecords,
 	if( (file = fopen(fic, "r+b")) == NULL)
 		file = fopen(fic, "w+b");
 
-	cache->file = fic;
+	char buffer[100000];
+	strcpy(buffer,fic);
+
+	cache->file = buffer;
 	cache->fp = file;
 	cache->nblocks = nblocks;
 	cache->nrecords = nrecords;
