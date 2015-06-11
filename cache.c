@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -88,7 +89,7 @@ Cache_Error Cache_Close(struct Cache *pcache) {
 	//Free des structs
 	free(&pcache->instrument);
 	free(pcache);
-	
+
 	pcache->headers = NULL;
 	pcache = NULL;
 
@@ -118,7 +119,7 @@ Cache_Error Cache_Sync(struct Cache *pcache) {
 			return c_err;
 		}
 		//On suprime la modification M
-		pcache->headers[i].flags &= ~MODIF;s
+		pcache->headers[i].flags &= ~MODIF;
 	}
 	//On retourne le Cache_Error
 	pcache->instrument.n_syncs++;
@@ -132,16 +133,10 @@ Cache_Error Cache_Invalidate(struct Cache *pcache){
 	Cache_Error c_err;
 	//Réccupèration du premier Cache_Block_Header
 	struct Cache_Block_Header *cur_header = pcache->headers;
-	int tmp = 0;
-	int address = &cur_header;
 	//On parcourt la liste de Cache_Block_Header
-	while( tmp < pcache->nblocks) {
-		struct Cache_Block_Header *ad = (struct Cache_Block_Header *)address;
+	for(int i = 0; i < pcache->nblocks; i++) {
 		//Si le bit V vaut 1 on le remet à 0
 		cur_header->flags &= ~VALID;
-		//On change de Cache_Block_Header puis on incrémente le nombre de Cache_Block_Header visité
-		address = address + sizeof(struct Cache_Block_Header);
-		tmp++;
 	}
 	//On retourne le Cache_Error
 	c_err = CACHE_OK;
@@ -150,7 +145,7 @@ Cache_Error Cache_Invalidate(struct Cache *pcache){
 
 //! Lecture  (à travers le cache).
 Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
-	int fd = open(pcache->file, O_RDONLY);
+	int fd = fileno(pcache->fp);
 	Cache_Error c_err;
 	fseek(pcache->fp, 0, irfile);
 	if (read(fd, &precord, sizeof(struct Cache_Block_Header))<0) {
@@ -164,8 +159,7 @@ Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
 //! Écriture (à travers le cache).
 Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
 	Cache_Error c_err;
-	fseek(pcache->fp, 0, irfile);
-	if (write(pcache->headers, &precord, sizeof(struct Cache_Block_Header))<0) {
+	if (memcpy(&pcache->headers[irfile], &precord, sizeof(struct Cache_Block_Header)) != &pcache->headers[irfile]) {
 		c_err = CACHE_KO;
 		return c_err;
 	}
