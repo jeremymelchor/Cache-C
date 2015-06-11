@@ -43,7 +43,7 @@ struct Cache *Cache_Create(const char *file, unsigned nblocks, unsigned nrecords
     pcache->headers = malloc(nblocks*sizeof(struct Cache_Block_Header));
     for (tmp = 0; tmp < nblocks; tmp++) {
     	pcache->headers[tmp].data = (char *)malloc(pcache->blocksz);
-		pcache->headers[tmp].tmpcache = tmp;
+		pcache->headers[tmp].ibcache = tmp;
 		pcache->headers[tmp].flags = 0;
     }
 
@@ -81,6 +81,21 @@ Cache_Error Cache_Close(struct Cache *pcache) {
     return CACHE_OK;
 }
 
+//! Ecriture sur le Block
+static Cache_Error Write_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
+    // On positionne le pointeur à l'adresse du block cherché
+    fseek(pcache->fp, DADDR(pcache, header->ibfile), SEEK_SET);
+
+    // Ecriture des données du Block
+    if (fwrite(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
+    	return CACHE_KO;
+
+    // On efface le bit M
+    header->flags &= ~MODIF;
+
+    return CACHE_OK;
+}
+
 //! Synchronisation du cache.
 Cache_Error Cache_Sync(struct Cache *pcache) {
     int tmp;
@@ -108,7 +123,7 @@ Cache_Error Cache_Invalidate(struct Cache *pcache) {
     int c_err;
 
     // Synchronisation du cache
-    c_err = Cache_Sync(pcache)
+    c_err = Cache_Sync(pcache);
     if (c_err != CACHE_OK) {
     	return c_err;
     }
@@ -142,7 +157,7 @@ static Cache_Error Read_Block(struct Cache *pcache, struct Cache_Block_Header *h
     leof = ftell(pcache->fp);
 
     // Si l'on est au dela de la fin de fichier, on cree un bloc de zeros.
-    loff = DADDR(pcache, header->tmpfile); // Adresse en octets du bloc dans le fichier
+    loff = DADDR(pcache, header->ibfile); // Adresse en octets du bloc dans le fichier
 
     /*Si le bloc cherché est au dela de la fin de fichier on n'effectue aucune entrée-sortie,
     se contentant de mettre le bloc à 0*/
@@ -159,21 +174,6 @@ static Cache_Error Read_Block(struct Cache *pcache, struct Cache_Block_Header *h
 
     // On met à 1 V
     header->flags |= VALID;
-
-    return CACHE_OK;
-}
-
-//! Ecriture sur le Block
-static Cache_Error Write_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
-    // On positionne le pointeur à l'adresse du block cherché
-    fseek(pcache->fp, DADDR(pcache, header->tmpfile), SEEK_SET);
-
-    // Ecriture des données du Block
-    if (fwrite(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
-    	return CACHE_KO;
-
-    // On efface le bit M
-    header->flags &= ~MODIF;
 
     return CACHE_OK;
 }
@@ -211,14 +211,14 @@ struct Cache_Block_Header *Get_Block(struct Cache *pcache, int irfile) {
 			return NULL;
 		}
 		// Si V et M sont à 1, on le sauve sur le fichier
-		c_err = Write_Block(pcache, header);
-		if ((header->flags & VALID) && (header->flags & MODIF) && ( != CACHE_OK)) {
+		Cache_Error c_err = Write_Block(pcache, header);
+		if ((header->flags & VALID) && (header->flags & MODIF) && (c_err != CACHE_OK)) {
 	    	return NULL;
 		}
 	
         //On rempli header
         header->flags = 0;
-        header->tmpfile = irfile / pcache->nrecords; /* indice du bloc dans le fichier */
+        header->ibfile = irfile / pcache->nrecords; /* indice du bloc dans le fichier */
         if (Read_Block(pcache, header) != CACHE_OK) {
         	return NULL;
         }
@@ -229,15 +229,14 @@ struct Cache_Block_Header *Get_Block(struct Cache *pcache, int irfile) {
 }
 
 //! Vérification de la nécessité de synchroniser
-static Cache_Error Verify_Sync_Need(struct Cache *pcache)
-{
+static Cache_Error Verify_Sync_Need(struct Cache *pcache) {
     static int sync_freq = NSYNC;
 
-    if (--sync_freq == 0)
-    {
-	sync_freq = NSYNC;
-	return Cache_Sync(pcache);
+    if (--sync_freq == 0) {
+		sync_freq = NSYNC;
+		return Cache_Sync(pcache);
     }
+    
     else return CACHE_OK;
 }
 
@@ -290,11 +289,9 @@ Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord) {
 }
 
 //! Résultat de l'instrumentation.
-struct Cache_Instrument *Cache_Get_Instrument(struct Cache *pcache) {}
-    static struct Cache_Instrument copy;
-
-    //On copie le Cache_Instrument du Cache
-    copy = pcache->instrument;
+struct Cache_Instrument *Cache_Get_Instrument(struct Cache *pcache) {
+    //Copie du Cache_Instrument
+    struct Cache_Instrument copy = pcache->instrument;
 
     //On réinitialise le Cache_Instrument
     pcache->instrument.n_reads = pcache->instrument.n_writes = 0;
