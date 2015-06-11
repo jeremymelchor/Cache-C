@@ -23,7 +23,6 @@
 #include "strategy.h"
 #include "cache.h"
 
-
 struct Cache_Block_Header* createHeaders(struct Cache* pcache) {
 	struct Cache_Block_Header* tmp = (struct Cache_Block_Header*)malloc( sizeof(struct Cache_Block_Header) * pcache->nblocks );
 	
@@ -152,6 +151,7 @@ Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
 		c_err = CACHE_KO;
 		return c_err;
 	}
+	pcache->instrument.n_reads++;
 	c_err = CACHE_OK;
 	return c_err;
 }
@@ -159,10 +159,11 @@ Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
 //! Écriture (à travers le cache).
 Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
 	Cache_Error c_err;
-	if (memcpy(&pcache->headers[irfile], &precord, sizeof(struct Cache_Block_Header)) != &pcache->headers[irfile]) {
+	if (memcpy(&pcache->headers[irfile].data, &precord, sizeof(struct Cache_Block_Header) - 3*sizeof(int)) != &pcache->headers[irfile]) {
 		c_err = CACHE_KO;
 		return c_err;
 	}
+	pcache->instrument.n_writes++;
 	c_err = CACHE_OK;
 	return c_err;
 }
