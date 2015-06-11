@@ -66,7 +66,7 @@ struct Cache *Cache_Create(const char *fic, unsigned nblocks, unsigned nrecords,
 
 	cache->instrument = instrument;
 	cache->pfree = &cache->headers[0];
-	cache->headers = CreateHeaders(cache);
+	cache->headers = createHeaders(cache);
 
 	return cache;
 }
@@ -88,7 +88,9 @@ Cache_Error Cache_Close(struct Cache *pcache) {
 	free(&pcache->instrument);
 	free(pcache);
 
-	pcache = pcache->headers = NULL;
+	struct Cache_Block_Header block;
+
+	pcache = pcache->headers = &block;
 
 	c_err = CACHE_OK;
 
@@ -99,32 +101,24 @@ Cache_Error Cache_Close(struct Cache *pcache) {
 Cache_Error Cache_Sync(struct Cache *pcache) {
 	//Création du Cache_Error
 	Cache_Error c_err;
-	//Réccupèration du premier Cache_Block_Header
-	struct Cache_Block_Header *cur_header = pcache->headers;
-	int tmp = 0;
-	int address = &cur_header;
 	//On parcourt la liste de Cache_Block_Header
-	while( tmp < pcache->nblocks) {
-		struct Cache_Block_Header *ad = (struct Cache_Block_Header *)address;
+	for(int i = 0; i < pcache->nblocks; i++) {
 		//Si on a effectué un multiple de NSYNC accès au Cache, on lance Cache_Sync()
-		if (tmp%(NSYNC) == 0) {
+		if (i%(NSYNC) == 0) {
 			Cache_Sync(pcache);
 			pcache->instrument.n_syncs++;
 		}
 		//Si le bit M vaut 1, on écrit le bloc dans le fichier, puis on remet M à 0
 		//Ecriture dans le fichier
-		int flag = pcache->headers[tmp].flags;
+		int flag = pcache->headers[i].flags;
 		int fd = open(pcache->file, O_WRONLY);
-		if (write(fd, ad->data, sizeof(cur_header->data))<0 && ( flag == MODIF+VALID || flag == MODIF ||
+		if (write(fd, pcache->headers[i].data, sizeof(pcache->headers[i].data))<0 && ( flag == MODIF+VALID || flag == MODIF ||
 			flag == MODIF+R_FLAG+VALID || flag == MODIF+R_FLAG ) ) {
 			c_err = CACHE_KO;
 			return c_err;
 		}
-		//On diminue suprime la modification M
-		pcache->headers[tmp].flags &= ~MODIF;
-		//On change de Cache_Block_Header puis on incrémente le nombre de Cache_Block_Header visité
-		address = address + sizeof(struct Cache_Block_Header);
-		tmp++;
+		//On suprime la modification M
+		pcache->headers[i].flags &= ~MODIF;s
 	}
 	//On retourne le Cache_Error
 	pcache->instrument.n_syncs++;
