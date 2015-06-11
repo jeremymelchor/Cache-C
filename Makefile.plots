@@ -17,7 +17,7 @@ all plots : cache_size read_write_ratio seq_access working_sets locality
 	done
 
 cache_size :
-	for t in 1 2 3 4 5 ; do \
+	for t in 1 2 3 4 5 6 7; do \
 		$(SCRIPTS)/plot.sh -T "Effet de la taille du cache" \
 			-o t$$t-cache_size -x "taille fichier / taille cache" \
 			-t $$t -L "20,70" \
@@ -39,7 +39,7 @@ read_write_ratio :
 	done
 
 nloops :
-	for t in 2 3 4 5; do \
+	for t in 2 3 4 5 7; do \
 		$(SCRIPTS)/plot.sh -T "Effet du nombre d'itérations" \
 			-o t$$t-nloops -x "Facteur du nombre d'itérations" \
 			-t $$t -L "10,85" \
