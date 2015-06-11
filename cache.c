@@ -3,7 +3,7 @@
  * 
  * \brief Implémentation du cache.
  *
- * \author Jean-Paul Rigault 
+ * \author MEURGUES Nicolas
  *
  * $Id: cache.c,v 1.3 2008/03/04 16:52:49 jpr Exp $
  *
@@ -13,292 +13,223 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
-
 #include "cache.h"
 #include "low_cache.h"
 #include "strategy.h"
 
-static struct Cache_Block_Header *Get_Block(struct Cache *pcache, int irfile);
-static struct Cache_Block_Header *Find_Block(struct Cache *pcache, int irfile);
-static Cache_Error Read_Block(struct Cache *pcache, struct Cache_Block_Header *pb);
-static Cache_Error Write_Block(struct Cache *pcache, struct Cache_Block_Header *pb);
-static Cache_Error Do_Sync_If_Needed(struct Cache *pcache);
+//! Création du cache.
+struct Cache *Cache_Create(const char *file, unsigned nblocks, unsigned nrecords, size_t recordsz, unsigned nderef) {
+    int tmp;
 
-/*!
- * \ingroup cache_interface
- *
- * Cette fonction crée et initialise le cache :
- *   - Allocation du cache lui-même
- *   - Ouverture du fichier
- *   - Initialisation des champs du cache.
- *   - Allocation des entêtes de blocs et des blocs eux-memes
- *
- * \param file nom du fichier
- * \param nblocks nombre de blocs dans le cache
- * \param nrecords nombre d'enregistrements par bloc
- * \param recordsz taille d'un enregistrement
- * \param nderef période de déréférençage (pour NUR)
- * \return un pointeur sur le nouveau cache ou le pointeur nul en cas d'erreur
- */
-struct Cache *Cache_Create(const char *file, unsigned nblocks,
-			   unsigned nrecords, size_t recordsz,
-                           unsigned nderef)
-{
-    int ib;
-
-    /* Allocation de la structure du cache */
+    // Allocation de la structure du cache
     struct Cache *pcache = (struct Cache *)malloc(sizeof(struct Cache));
 
-    /* Sauvegarde du nom de fichier */
+    // Sauvegarde du nom de fichier
     pcache->file = (char *)malloc(strlen(file) + 1);
     strcpy(pcache->file, file);
 
-    /* Ouverture du fichier en mode "update" :
-     * On verifie d'abord que le fichier existe ("r+").
-     * Sinon on le cree ("w+").
-     */
+    // Ouverture du fichier en mode "update"
     if ((pcache->fp = fopen(file, "r+")) == NULL)
-	if ((pcache->fp = fopen(file, "w+")) == NULL) return CACHE_KO;
+		if ((pcache->fp = fopen(file, "w+")) == NULL)
+			return CACHE_KO;
 
-    /* Initialisation des valeurs de dimensionnement */
-    if (nblocks > 0) pcache->nblocks = nblocks;
-    else return 0;
-    if (nrecords > 0) pcache->nrecords = nrecords;
-    else return 0;
-    if (recordsz > 0) pcache->recordsz = recordsz;
-    else return 0;
-    if (recordsz > 0) pcache->nderef = nderef;
-    else return 0;
-
+    pcache->nblocks = nblocks;
+    pcache->nrecords = nrecords;
+    pcache->recordsz = recordsz;
+    pcache->nderef = nderef;
     pcache->blocksz = nrecords*recordsz;
 
-    /* Allocation des entetes de bloc, et des blocs eux-memes */
+    // Allocation des entetes de bloc, et des blocs eux-memes
     pcache->headers = malloc(nblocks*sizeof(struct Cache_Block_Header));
-    for (ib = 0; ib < nblocks; ib++)
-    {	pcache->headers[ib].data = (char *)malloc(pcache->blocksz);
-	pcache->headers[ib].ibcache = ib;
-	pcache->headers[ib].flags = 0;
+    for (tmp = 0; tmp < nblocks; tmp++) {
+    	pcache->headers[tmp].data = (char *)malloc(pcache->blocksz);
+		pcache->headers[tmp].tmpcache = tmp;
+		pcache->headers[tmp].flags = 0;
     }
 
-    /* Initialisation du pointeur sur le premier bloc libre, cad ici le premier
-     * bloc */
+    // Initialisation du pointeur sur le premier bloc ltmpre, cad ici le premier bloc
     pcache->pfree = pcache->headers;
 
-    /* Mise à 0 des données d'instrumentation */
-    (void)Cache_Get_Instrument(pcache);
+    // Mise à 0 des données d'instrumentation
+    Cache_Get_Instrument(pcache);
 
-    /* Initialisation de la stratégie */
+    // Initialisation de la stratégie
     pcache->pstrategy = Strategy_Create(pcache);
 
-    /* On rend ce que l'on vient de créer et d'initialiser */
+    // Retour du cache
     return pcache;
 }
 
-/*!
- * \ingroup cache_interface
- *
- * Cette fonction ferme et détruit le cache :
- *    - Synchronisation du cache.
- *    - Déallocation des entetes de blocs et des blocs eux-memes.
- *    - Déallocation du nom de fichier.
- *    - Déallocation du cache lui-même
- *
- * \param pcache un pointeur sur le cache à fermer
- * \return le code d'erreur
- */
-Cache_Error Cache_Close(struct Cache *pcache)
-{
-    int ib;
+//! Fermeture (destruction) du cache.
+Cache_Error Cache_Close(struct Cache *pcache) {
+    int tmp;
 
-    /* Synchronisation */
+    // Synchronisation et fermeture de la stratégie
     Cache_Sync(pcache);
-
-    /* Fermeture de la stratégie */
     Strategy_Close(pcache);
 
-    /* Déallocation des blocks */ 
-    for (ib = 0; ib < pcache->nblocks; ib++)
-        free(pcache->headers[ib].data);   
+    // Libération des blocs 
+    for (tmp = 0; tmp < pcache->nblocks; tmp++) {
+        free(pcache->headers[tmp].data);   
+    }
 
-    /* Déallocation des entêtes et du nom de fichier */
+    // Déallocation des structs
     free(pcache->headers);
     free(pcache->file);
-
-    /* Déallocation du cache lui-même */
     free(pcache);
 
     return CACHE_OK;
 }
 
-/*!
- * \ingroup cache_interface
- *
- * Cette fonction synchronise le contenu du fichier avec celui du cache.
- * 
- * On parcourt tous les blocs valides (flag \c VALID) en écrivant ceux qui 
- * sont modifiés (flag \c MODIF). 
- *
- * \param pcache un pointeur sur le cache à synchroniser
- * \return le code d'erreur
- */
-Cache_Error Cache_Sync(struct Cache *pcache)
-{
-    int ib;
+//! Synchronisation du cache.
+Cache_Error Cache_Sync(struct Cache *pcache) {
+    int tmp;
 
-    for (ib = 0; ib < pcache->nblocks; ib++)
-    {
-	struct Cache_Block_Header *pbh = &pcache->headers[ib];
+    //visite des blocks
+    for (tmp = 0; tmp < pcache->nblocks; tmp++) {
+		struct Cache_Block_Header *header = &pcache->headers[tmp];
 
-	if (pbh->flags & (VALID | MODIF)) 
-	    if (Write_Block(pcache, pbh) == CACHE_KO) return CACHE_KO;
+		//si le bloc a V et M à 1 :
+		if (header->flags & (VALID | MODIF)) {
+	 	   if (Write_Block(pcache, header) == CACHE_KO)
+	 	   	return CACHE_KO;
+	 	}
     }    
 
+    //On incrémente le nombre de synchronisations
     pcache->instrument.n_syncs++;
 
     return CACHE_OK;
 }
 
-/*! 
- * \ingroup cache_interface
- *
- * Cette fonction invalide le cache, c'est-à -dire le vide de son contenu.
- * 
- * On synchronise le cache puis tous les blocs sont marqués invalides
- * (RAZ du flag \c VALID). C'est comme si le cache devenait vide. On invalide
- * aussi la stratégie.
- *
- * \param pcache un pointeur sur le cache à synchroniser
- * \return le code d'erreur
- */
-Cache_Error Cache_Invalidate(struct Cache *pcache)
-{
-    int ib;
-    int rcode;
+//! Invalidation du cache.
+Cache_Error Cache_Invalidate(struct Cache *pcache) {
+    int tmp;
+    int c_err;
 
-    /* Synchronisation du cache */
-    if ((rcode = Cache_Sync(pcache)) != CACHE_OK) return rcode;
-
-    /* Tous les blocs deviennent invalides */
-    for (ib = 0; ib < pcache->nblocks; ib++)
-    {
-	struct Cache_Block_Header *pbh = &pcache->headers[ib];
-
-	pbh->flags &= ~VALID; 
+    // Synchronisation du cache
+    c_err = Cache_Sync(pcache)
+    if (c_err != CACHE_OK) {
+    	return c_err;
     }
 
-    /* Initialisation du pointeur sur le premier bloc libre, cad ici le premier
-     * bloc */
+    struct Cache_Block_Header *header;
+    // On met V à 0 dans tout les blocks
+    for (tmp = 0; tmp < pcache->nblocks; tmp++) {
+    	header = &pcache->headers[tmp];
+    	header->flags &= ~VALID; 
+    }
+
+    // Initialisation du pointeur sur le premier bloc
     pcache->pfree = pcache->headers;
 
-    /* La stratégie a peut-être quelque chose à faire */
+    //on appéle le Invalidate de la stratégie
     Strategy_Invalidate(pcache);
 
     return CACHE_OK;
 }
 
-/*!
- * \ingroup cache_interface
- *
- * Cette fonction permet de lire un enregistrement à travers le cache.
- *  
- * La fonction \c Get_Block retourne le bloc du cache contenant l'enregistrement à
- * l'index-fichier \a irfile. Il n'y a plus qu'à faire la copie physique dans la zone
- * de l'utilisateur. On doit également notifier la stratégie de ce qu'on vient
- * de faire.
- *  
- * La fonction \c Do_Sync_If_Needed effectue une synchronisation à
- * intervalle régulier.
- *
- * \param pcache un pointeur sur le cache à synchroniser
- * \param irfile index de l'enregistrement dans le fichier
- * \param precord adresse où ranger l'enregistrement dans l'espace utilisateur
- * \return le code d'erreur
- */
-Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord)
-{
-    struct Cache_Block_Header *pbh;
+//!lecture du Block
+static Cache_Error Read_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
+    long loff, leof;
 
-    pcache->instrument.n_reads++;
+    // On cherche la longueur courante du fichier
+    int value = fseek(pcache->fp, 0, SEEK_END);
+    if (value < 0) {
+    	return CACHE_KO;
+    }
 
-    if ((pbh = Get_Block(pcache, irfile)) == NULL) return CACHE_KO;
-    (void)memcpy(precord, ADDR(pcache, irfile, pbh), pcache->recordsz);
+    leof = ftell(pcache->fp);
 
-    Strategy_Read(pcache, pbh);
+    // Si l'on est au dela de la fin de fichier, on cree un bloc de zeros.
+    loff = DADDR(pcache, header->tmpfile); // Adresse en octets du bloc dans le fichier
 
-    return Do_Sync_If_Needed(pcache);
+    /*Si le bloc cherché est au dela de la fin de fichier on n'effectue aucune entrée-sortie,
+    se contentant de mettre le bloc à 0*/
+    if (loff >= leof) {
+        memset(header->data, '\0', pcache->blocksz); 
+    } else {		//Si le bloc existe, on s'y rend puis on le lis
+    	if (fseek(pcache->fp, loff, SEEK_SET) != 0) {
+    		return CACHE_KO;
+    	}
+    	if (fread(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz) {
+    		return CACHE_KO;
+    	}
+    } 
+
+    // On met à 1 V
+    header->flags |= VALID;
+
+    return CACHE_OK;
 }
 
-/*!
- * \ingroup cache_interface
- *
- * Cette fonction permet d'écrire un enregistrement à travers le cache.
- *  
- * La fonction Get_Block retourne le bloc du cache contenant l'enregistrement à
- * l'indice-fichier irfile. Il n'y a plus qu'à faire la copie physique depuis la
- * zone de l'utilisateur. Le bloc est marqué modifié (flag MODIF).
- * La fonction Do_Sync_If_Needed effectue une synchronisation à intervalle
- * régulier.
- *
- * \param pcache un pointeur sur le cache à synchroniser
- * \param irfile index de l'enregistrement dans le fichier
- * \param precord adresse où lire l'enregistrement dans l'espace utilisateur
- * \return le code d'erreur 
- */
-Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord)
-{
-    struct Cache_Block_Header *pbh;
+//! Ecriture sur le Block
+static Cache_Error Write_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
+    // On positionne le pointeur à l'adresse du block cherché
+    fseek(pcache->fp, DADDR(pcache, header->tmpfile), SEEK_SET);
 
-    pcache->instrument.n_writes++;
+    // Ecriture des données du Block
+    if (fwrite(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
+    	return CACHE_KO;
 
-    if ((pbh = Get_Block(pcache, irfile)) == NULL) return CACHE_KO;
-    (void)memcpy(ADDR(pcache, irfile, pbh), precord, pcache->recordsz);
+    // On efface le bit M
+    header->flags &= ~MODIF;
 
-    pbh->flags |= MODIF;
-
-    Strategy_Write(pcache, pbh);
-
-    return Do_Sync_If_Needed(pcache);
+    return CACHE_OK;
 }
 
-/*! 
- * \ingroup cache_interface
- *
- * Accès aux données d'instrucmentation.
- *
- * \param pcache un pointeur sur le cache à synchroniser
- * \return un pointeur sur els données d'instrumentation
- */
-struct Cache_Instrument *Cache_Get_Instrument(struct Cache *pcache)
-{
-    static struct Cache_Instrument save;
+//! Recherche d'un Block
+static struct Cache_Block_Header *Find_Block(struct Cache *pcache, int irfile) {
+    int tmp;
+    int ibfile = irfile / pcache->nrecords;
 
-    save = pcache->instrument;
-    pcache->instrument.n_reads = pcache->instrument.n_writes = 0;
-    pcache->instrument.n_hits = pcache->instrument.n_syncs = 0;
-    pcache->instrument.n_deref = 0;
+    //On parcourt les block
+    for (tmp = 0; tmp < pcache->nblocks; tmp++) {
+		struct Cache_Block_Header *header = &pcache->headers[tmp];
 
-    return &save;
+		//S'ils sont valides et qu'ils on le même ibfile que celui cherché, on le retourne
+		if (header->flags & VALID && header->ibfile == ibfile) {
+		    pcache->instrument.n_hits++;
+		    return header;
+		}
+    }
+
+    return NULL;
 }
 
-/*! 
- * \defgroup cache_internal Fonctions internes à la gestion générique du cache.
- *
- * Ces fonctions sont privées au module de gestion générique (indépendant de la
- * stratégie) c'est-à-dire à cache.c..
- */
+//! Réccupère un Block grace à son irfile
+struct Cache_Block_Header *Get_Block(struct Cache *pcache, int irfile) {
+    struct Cache_Block_Header *header;
 
-/*! \brief Synchronisation périodique.
- * 
- *  \ingroup cache_internal
- * 
- *  Pour simplifier, elle est réalisée toutes les \c NSYNC opérations de lecture
- *  ou d'écriture. Dans une système réel, elle serait plutôt réalisée
- *  périodiquement dans le temps (toutes les \a T secondes).
- *
- * \param pcache un pointeur sur le cache à synchroniser
- * \return le code d'erreur 
- */
-static Cache_Error Do_Sync_If_Needed(struct Cache *pcache)
+    //Si le Block est nul l'enregistrement n'est pas dans le cache
+    header = Find_Block(pcache, irfile);
+    if (header == NULL) {
+        
+        // On fait appel à Strategy_Replace_Block et retourne NULL si ce dernier n'existe pas
+		header = Strategy_Replace_Block(pcache);
+		if (header == NULL) {
+			return NULL;
+		}
+		// Si V et M sont à 1, on le sauve sur le fichier
+		c_err = Write_Block(pcache, header);
+		if ((header->flags & VALID) && (header->flags & MODIF) && ( != CACHE_OK)) {
+	    	return NULL;
+		}
+	
+        //On rempli header
+        header->flags = 0;
+        header->tmpfile = irfile / pcache->nrecords; /* indice du bloc dans le fichier */
+        if (Read_Block(pcache, header) != CACHE_OK) {
+        	return NULL;
+        }
+    }
+
+    //On retourne le header
+    return header;
+}
+
+//! Vérification de la nécessité de synchroniser
+static Cache_Error Verify_Sync_Need(struct Cache *pcache)
 {
     static int sync_freq = NSYNC;
 
@@ -310,158 +241,66 @@ static Cache_Error Do_Sync_If_Needed(struct Cache *pcache)
     else return CACHE_OK;
 }
 
-/*! \brief Obtention depuis le fichier du bloc contenant l'enregistrement
- * d'indice-fichier donné.
- * 
- *  \ingroup cache_internal
- *
- * Cette fonction retourne un bloc valide contenant l'enregistrement cherché.
- * On cherche d'abord l'enregistrement dans le cache grâce à Find_Block.  Si on
- * ne l'y trouve pas, on obtient un bloc libre grâce à la fonction
- * Strategy_Replace_Block (qui, comme son nom l'indique, depend de la
- * strategie). On sauve ce bloc si il est marqué modifié puis on initialise son
- * entête et on lit son contenu depuis le fichier (Read_Block).
- *
- * \param pcache un pointeur sur le cache à synchroniser
- * \param irfile indice du bloc cherché dans le fichier
- * \return un pointeur sur l'entête du bloc (ou le pointeur nul si le bloc n'est pas trouvé)  
-*/
-struct Cache_Block_Header *Get_Block(struct Cache *pcache, int irfile)
-{
-    struct Cache_Block_Header *pbh;
+//! Lecture  (à travers le cache).
+Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord) {
+	struct Cache_Block_Header *header;
 
-    if ((pbh = Find_Block(pcache, irfile)) == NULL)
-    {
-        /* L'enregistrement n'est pas dans le cache */
-        
-        /* On demande un block à Strategy_Replace_Block */
-	pbh = Strategy_Replace_Block(pcache);
-	if (pbh == NULL) return NULL;
+	//On incrémente le nombre de lectures
+    pcache->instrument.n_reads++;
 
-	/* Si le bloc libéré est valide et modifié, on le sauve sur le fichier */
-	if ((pbh->flags & VALID) && (pbh->flags & MODIF)
-            && (Write_Block(pcache, pbh) != CACHE_OK))
-	    return NULL; 
-	
-        /* On remplit le bloc libre et son entête avec l'information de
-         * l'enregistrement d'indice-fichier irfile
-         */
-	pbh->flags = 0;
-	pbh->ibfile = irfile / pcache->nrecords; /* indice du bloc dans le fichier */
-	if (Read_Block(pcache, pbh) != CACHE_OK) return NULL;
+    //Si le header est NULL on retourne CACHE_KO
+    header = Get_Block(pcache, irfile);
+    if (header == NULL) {
+    	return CACHE_KO;
     }
 
-    /* Soit l'enregistrement était déjà dans le cache, soit on vient de l'y mettre */
-    return pbh;
+    //On copie la mémoire
+    memcpy(precord, ADDR(pcache, irfile, header), pcache->recordsz);
+
+    //La stratégie lis
+    Strategy_Read(pcache, header);
+
+    //on vérifie s'il est nécéssaire de synchroniser
+    return Verify_Sync_Need(pcache);
 }
 
-/*! \brief Recherche d'un enregistrement d'indice-fichier donné dans le cache.
- * 
- *  \ingroup cache_internal
- *
- * On parcourt les blocs du cache pour trouver celui qui contient
- * l'enregistrement cherché. Iici le parcours est linéaire, on devrait pouvoir
- * faire mieux !
- *
- * \param pcache un pointeur sur le cache à synchroniser
- * \param irfile indice du bloc cherché dans le fichier
- * \return un pointeur sur l'entête du bloc (ou le pointeur nul si le bloc n'est pas trouvé) 
- */
-static struct Cache_Block_Header *Find_Block(struct Cache *pcache, int irfile)
-{
-    int ib;
-    int ibfile = irfile / pcache->nrecords; /* indice du bloc dans le fichier */
+//! Écriture (à travers le cache).
+Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord) {
+    struct Cache_Block_Header *header;
 
-    for (ib = 0; ib < pcache->nblocks; ib++)
-    {
-	struct Cache_Block_Header *pbh = &pcache->headers[ib];
+    //On incrémente le nombre d'écritures
+    pcache->instrument.n_writes++;
 
-	if (pbh->flags & VALID && pbh->ibfile == ibfile) 
-        {
-	    pcache->instrument.n_hits++;
-	    return pbh;
-	}
-    }
+    //Si le bloc n'existe pas, on retourne CACHE_KO
+    header = Get_Block(pcache, irfile);
+    if (header == NULL)
+    	return CACHE_KO;
+    
+    //On copie les données du buffer dans le cache
+    memcpy(ADDR(pcache, irfile, header), precord, pcache->recordsz);
 
-    return NULL;
+    //On ajoute M aux flags
+    header->flags |= MODIF;
+
+    //On fait appel au Write de la stratégie
+    Strategy_Write(pcache, header);
+
+    //On vérifie s'il faut synchroniser
+    return Verify_Sync_Need(pcache);
 }
 
-/*! \brief Écriture physique d'un bloc dans le fichier.
- * 
- *  \ingroup cache_internal
- *
- * On écrit le bloc puis on efface le flag de modification.
- * 
- * \param pcache un pointeur sur le cache
- * \param un pointeur sur le bloc du cache à écrire
- * \return un code d'erreur
- */
-static Cache_Error Write_Block(struct Cache *pcache, struct Cache_Block_Header *pbh)
-{
-    /* On positionne le pointeur d'E/S à l'adresse du bloc dans le fichier */
-    fseek(pcache->fp, DADDR(pcache, pbh->ibfile), SEEK_SET);
+//! Résultat de l'instrumentation.
+struct Cache_Instrument *Cache_Get_Instrument(struct Cache *pcache) {}
+    static struct Cache_Instrument copy;
 
-    /* On écrit les données du bloc */
-    if (fwrite(pbh->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
-	return CACHE_KO;
+    //On copie le Cache_Instrument du Cache
+    copy = pcache->instrument;
 
-    /* On efface la marque de modification */  
-    pbh->flags &= ~MODIF;
+    //On réinitialise le Cache_Instrument
+    pcache->instrument.n_reads = pcache->instrument.n_writes = 0;
+    pcache->instrument.n_hits = pcache->instrument.n_syncs = 0;
+    pcache->instrument.n_deref = 0;
 
-    return CACHE_OK;
+    //On retourne la copie
+    return &copy;
 }
-
-/*! \brief Lecture physique d'un bloc depuis le fichier.
- *
- *  \ingroup cache_internal
- *
- * Si le bloc correspond à des enregistrements existants actuellement sur le
- * fichier, on écrase juste les données du fichier par celles du bloc. S'il
- * est dela de la fin de fichier, on cree un bloc de zéros. Dans tous les cas
- * on valide le bloc.
- * 
- * \param pcache un pointeur sur le cache
- * \param un pointeur sur le bloc du cache à écrire
- * \return un code d'erreur
- */
-static Cache_Error Read_Block(struct Cache *pcache, struct Cache_Block_Header *pbh)
-{
-    long loff, leof;
-
-    /* On cherche la longueur courante du fichier */
-    if (fseek(pcache->fp, 0, SEEK_END) < 0) return CACHE_KO;
-    leof = ftell(pcache->fp);
-
-    /* Si l'on est au dela de la fin de fichier, on cree un bloc de zeros.
-       Sinon, on lit le bloc depuis le fichier */
-
-    loff = DADDR(pcache, pbh->ibfile); /* Adresse en octets du bloc dans le fichier */
-
-    if (loff >= leof)
-    {
-        /* Le bloc cherché est au dela de la fin de fichier. */
-
-        /* On n'effectue aucune entrée-sortie, se contentant de mettre le bloc à 0. */
-        memset(pbh->data, '\0', pcache->blocksz); 
-    }
-    else 
-    { 
-        /* Le bloc existe dans le fichier */
-
-        /* On y va ! */
-	if (fseek(pcache->fp, loff, SEEK_SET) != 0) return CACHE_KO; 
-
-        /* Et on le lit */
-	if (fread(pbh->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz)
-	    return CACHE_KO; 
-    } 
-
-    /* Le bloc est maintenant valide */
-    pbh->flags |= VALID;
-
-    return CACHE_OK;
-}
-
-
-
-
