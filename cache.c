@@ -264,32 +264,24 @@ Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
     //Appel à la lecture de la strategie
     Strategy_Read(pcache, header);
 
+    //Retour du Cache_Error
     return Do_Sync_If_Needed(pcache);
 }
 
 //! Écriture (à travers le cache).
-Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
-	//création d'un header temporaire
-	struct Cache_Block_Header *header;
+Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord)
+{
+    struct Cache_Block_Header *pbh;
 
-	//Incrémentation du nombre d'écritures
     pcache->instrument.n_writes++;
 
-    //Recherche du Header
-    header = Get_Block(pcache, irfile);
-    if (header == NULL){
-    	return CACHE_KO;
-    }
-    //copie des données
-    memcpy(ADDR(pcache, irfile, header), precord, pcache->recordsz);
+    if ((pbh = Get_Block(pcache, irfile)) == NULL) return CACHE_KO;
+    (void)memcpy(ADDR(pcache, irfile, pbh), precord, pcache->recordsz);
 
-    //Modification du flag
-    header->flags |= MODIF;
+    pbh->flags |= MODIF;
 
-    //Appel à l'écriture de la stratégie
-    Strategy_Write(pcache, header);
+    Strategy_Write(pcache, pbh);
 
-    //Retour du Cache_Error
     return Do_Sync_If_Needed(pcache);
 }
 
