@@ -103,31 +103,19 @@ Cache_Error Cache_Close(struct Cache *pcache) {
 
 //! Synchronisation du cache.
 Cache_Error Cache_Sync(struct Cache *pcache) {
-	//Création du Cache_Error
-	Cache_Error c_err;
-	//On parcourt la liste de Cache_Block_Header
-	for(int i = 0; i < pcache->nblocks; i++) {
-		//Si on a effectué un multiple de NSYNC accès au Cache, on lance Cache_Sync()
-		if (i%(NSYNC) == 0) {
-			Cache_Sync(pcache);
-			pcache->instrument.n_syncs++;
-		}
-		//Si le bit M vaut 1, on écrit le bloc dans le fichier, puis on remet M à 0
-		//Ecriture dans le fichier
-		int flag = pcache->headers[i].flags;
-		int fd = open(pcache->file, O_WRONLY);
-		if (write(fd, pcache->headers[i].data, sizeof(pcache->headers[i].data))<0 && ( (flag & MODIF && flag & VALID) ||
-			flag & MODIF || (flag & MODIF && flag & R_FLAG && flag & VALID) || (flag & MODIF && flag && R_FLAG) ) ) {
-			c_err = CACHE_KO;
-			return c_err;
-		}
-		//On suprime la modification M
-		pcache->headers[i].flags &= ~MODIF;
-	}
-	//On retourne le Cache_Error
-	pcache->instrument.n_syncs++;
-	c_err = CACHE_OK;
-	return c_err;
+    int ib;
+
+    for (ib = 0; ib < pcache->nblocks; ib++) {
+		struct Cache_Block_Header *pbh = &pcache->headers[ib];
+
+		if (pbh->flags & (VALID | MODIF)) 
+	    	if (Write_Block(pcache, pbh) == CACHE_KO)
+	    		return CACHE_KO;
+    }    
+
+    pcache->instrument.n_syncs++;
+
+    return CACHE_OK;
 }
 
 //! Invalidation du cache.
@@ -269,19 +257,28 @@ Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
 }
 
 //! Écriture (à travers le cache).
-Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord)
-{
-    struct Cache_Block_Header *pbh;
+Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
+	//création d'un header temporaire
+	struct Cache_Block_Header *header;
 
+	//Incrémentation le nombre d'écritures
     pcache->instrument.n_writes++;
 
-    if ((pbh = Get_Block(pcache, irfile)) == NULL) return CACHE_KO;
-    (void)memcpy(ADDR(pcache, irfile, pbh), precord, pcache->recordsz);
+    //Recherche du Header
+    header = Get_Block(pcache, irfile);
+    if (header == NULL){
+    	return CACHE_KO;
+    }
+    //copie des données
+    memcpy(ADDR(pcache, irfile, header), precord, pcache->recordsz);
 
-    pbh->flags |= MODIF;
+    //Modification du flag
+    header->flags |= MODIF;
 
-    Strategy_Write(pcache, pbh);
+    //Appel à l'écriture de la stratégie
+    Strategy_Write(pcache, header);
 
+    //Retour du Cache_Error
     return Do_Sync_If_Needed(pcache);
 }
 
