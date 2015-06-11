@@ -203,6 +203,19 @@ struct Cache_Block_Header * Cache_Find_Block(struct Cache * pcache, int irfile, 
 	return header;
 }
 
+//!Synchronisation si nécéssaire :
+static Cache_Error Do_Sync_If_Needed(struct Cache *pcache) {
+    static int sync_freq = NSYNC;
+
+    //vérifie que la frequence de synchronisation soit diffèrente de 0
+    if (--sync_freq == 0) {
+    	sync_freq = NSYNC;
+    	return Cache_Sync(pcache);
+    }
+    //Retourne CACHE_OK s'il n'y a pas de problèmes de synchronisation
+    else return CACHE_OK;
+}
+
 //! Lecture  (à travers le cache).
 Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
 	//On cherche tout d'abord un block
@@ -223,25 +236,41 @@ Cache_Error Cache_Read(struct Cache *pcache, int irfile, void *precord){
 
 //! Écriture (à travers le cache).
 Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
-	 // On cherche tout d'aabord un block
-	 struct Cache_Block_Header * header;
-	 header = Cache_Find_Block(pcache, irfile, precord);
+	//création d'un header temporaire
+	struct Cache_Block_Header *header;
 
-	 // On recopie l'enregistrement dans le cache
-	 memcpy(&header, precord,pcache->recordsz);
-	 header->flags = header->flags | MODIF; // On met M à 1
+	//Incrémentation du nombre d'écritures
+    pcache->instrument.n_writes++;
 
-	 // On appel la fonction d'écriture de la stratégie
-	 Strategy_Write(pcache,header);
+    //Recherche du Header
+    if ((header = Cache_Find_Block(pcache, irfile, precord)) == NULL){
+    	return CACHE_KO;
+    }
+    //copie des données
+    memcpy(ADDR(pcache, irfile, header), precord, pcache->recordsz);
 
-	 // On incrémente le nombre d'écriture
-	 pcache->instrument.n_writes++;
+    //Modification du flag
+    header->flags |= MODIF;
 
-	 return CACHE_OK;
+    //Appel à l'écriture de la stratégie
+    Strategy_Write(pcache, header);
+
+    //Retour du Cache_Error
+    return Do_Sync_If_Needed(pcache);
 }
+
 //! Résultat de l'instrumentation.
 struct Cache_Instrument *Cache_Get_Instrument(struct Cache *pcache) {
-	return &pcache->instrument;
+	//copie de Cache_Instrument
+	static struct Cache_Instrument copy;
+    copy = pcache->instrument;
+
+    //réinitialisations
+    pcache->instrument.n_reads = pcache->instrument.n_writes = 0;
+    pcache->instrument.n_hits = pcache->instrument.n_syncs = 0;
+    pcache->instrument.n_deref = 0;
+
+    return &copy;
 } 
 
 /* Permet de rechercher un bloc libre dans le cache.
