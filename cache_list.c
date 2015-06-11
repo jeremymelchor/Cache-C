@@ -16,9 +16,7 @@ struct Cache_List *Cache_List_Create()
 /*! Destruction d'une liste de blocs */
 void Cache_List_Delete(struct Cache_List *list)
 {
-	struct Cache_List *count;
-	for(count=list->next; count!=list; count=count->next)
-			Cache_List_Remove_First(list);
+	Cache_List_Clear(list);
 	free(list);
 }
 
@@ -60,6 +58,8 @@ void Cache_List_Prepend(struct Cache_List *list, struct Cache_Block_Header *pbh)
 /*! Retrait du premier élément */
 struct Cache_Block_Header *Cache_List_Remove_First(struct Cache_List *list)
 {
+	if(list == NULL)
+		list = Cache_List_Create();
 	struct Cache_List *slave = list->next;
 	slave->prev->next=slave->next;
 	slave->next->prev=slave->prev;
@@ -71,6 +71,8 @@ struct Cache_Block_Header *Cache_List_Remove_First(struct Cache_List *list)
 /*! Retrait du dernier élément */
 struct Cache_Block_Header *Cache_List_Remove_Last(struct Cache_List *list)
 {
+	if(list == NULL)
+		list = Cache_List_Create();
 	struct Cache_List *slave;
 	for(slave=list->next; slave !=list; slave=slave->next){}
 	
@@ -85,6 +87,8 @@ struct Cache_Block_Header *Cache_List_Remove_Last(struct Cache_List *list)
 /*! Retrait d'un élément quelconque */
 struct Cache_Block_Header *Cache_List_Remove(struct Cache_List *list, struct Cache_Block_Header *pbh)
 {
+	if(list == NULL)
+		list = Cache_List_Create();
 	struct Cache_List *slave;
 
 	for (slave=list->next; slave != list; slave=slave->next) {
@@ -131,6 +135,8 @@ bool Cache_List_Is_Empty(struct Cache_List *list)
 /*! Transférer un élément à la fin */
 void Cache_List_Move_To_End(struct Cache_List *list, struct Cache_Block_Header *pbh)
 {
+	if(list == NULL)
+		list = Cache_List_Create();
 	struct Cache_Block_Header *header = Cache_List_Remove(list, pbh);
 	if(header!=NULL)
 		Cache_List_Append(list,header); 
@@ -140,6 +146,8 @@ void Cache_List_Move_To_End(struct Cache_List *list, struct Cache_Block_Header *
 /*! Transférer un élément  au début */
 void Cache_List_Move_To_Begin(struct Cache_List *list, struct Cache_Block_Header *pbh)
 {
+	if(list == NULL)
+		list = Cache_List_Create();
 	//On trouve l'element
 	struct Cache_List *counter = list->next;
 	for(counter=list->next; counter !=list && counter->pheader !=pbh; counter=counter->next){}
