@@ -228,7 +228,7 @@ Cache_Error Cache_Write(struct Cache *pcache, int irfile, const void *precord){
 
 	 // On recopie l'enregistrement dans le cache
 	 memcpy(&header, precord,pcache->recordsz);
-	 header->flags &= MODIF; // On met M à 1
+	 header->flags = header->flags | MODIF; // On met M à 1
 
 	 // On appel la fonction d'écriture de la stratégie
 	 Strategy_Write(pcache,header);
