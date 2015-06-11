@@ -37,6 +37,7 @@ struct Cache_Block_Header* createHeaders(struct Cache* pcache) {
 		tmp[i].ibcache = i;
 		tmp[i].data = (char*)malloc( pcache->recordsz * pcache->nrecords );
 		tmp[i].ibfile = -1;
+		tmp[i].flags &= ~MODIF & ~VALID & ~R_FLAG;
 	}
 
 	return tmp;
