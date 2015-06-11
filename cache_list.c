@@ -26,10 +26,8 @@ void Cache_List_Delete(struct Cache_List *list)
 void Cache_List_Append(struct Cache_List *list, struct Cache_Block_Header *pbh)
 {
 	struct Cache_List *counter = malloc(sizeof(struct Cache_List));
-	if(list != NULL)
-	{
-	
-	printf("gg");
+	if(list == NULL)
+		list = Cache_List_Create();
 	counter = list->prev;
 	struct Cache_List *new = malloc(sizeof(struct Cache_List));
 	if(list != NULL)
@@ -40,14 +38,13 @@ void Cache_List_Append(struct Cache_List *list, struct Cache_Block_Header *pbh)
 	new->prev=counter->prev;
 	counter->prev->next=new;
 	counter->prev=new;
-	}
 	
 }
 /*! Insertion d'un élément au début */
 void Cache_List_Prepend(struct Cache_List *list, struct Cache_Block_Header *pbh)
 {
-	if(list != NULL)
-	{
+	if(list == NULL)
+		list = Cache_List_Create();
 	
 	struct Cache_List *counter = list->next;
 	struct Cache_List *new = malloc(sizeof(struct Cache_List));
@@ -58,7 +55,6 @@ void Cache_List_Prepend(struct Cache_List *list, struct Cache_Block_Header *pbh)
 	counter->prev->next=new;
 	counter->prev=new;
 	list = new;
-	}
 }
 
 /*! Retrait du premier élément */
