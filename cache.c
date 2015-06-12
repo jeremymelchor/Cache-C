@@ -147,25 +147,26 @@ Cache_Error Cache_Invalidate(struct Cache *pcache) {
 
 //!lecture du Block
 static Cache_Error Read_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
-    long loff, leof;
+    long cur_bloc_addr, end_of_file;
 
     // On cherche la longueur actuelle du fichier
-    int value = fseek(pcache->fp, 0, SEEK_END);
-    if (value < 0) {
+    int length = fseek(pcache->fp, 0, SEEK_END);
+    if (length < 0) {
     	return CACHE_KO;
     }
 
-    leof = ftell(pcache->fp);
+    //on réccupère la position actuelle du pointeur sur le flux fp
+    end_of_file = ftell(pcache->fp);
 
-    // Si l'on est au dela de la fin de fichier, on cree un bloc de zeros.
-    loff = DADDR(pcache, header->ibfile); // Adresse en octets du bloc dans le fichier
+    // Adresse en octets du bloc dans le fichier
+    cur_bloc_addr = DADDR(pcache, header->ibfile);
 
-    /*Si le bloc cherché est au dela de la fin de fichier on n'effectue aucune entrée-sortie,
-    se contentant de mettre le bloc à 0*/
-    if (loff >= leof) {
+    // Si le bloc cherché est au dela de la fin de fichier on n'effectue aucune entrée-sortie
+    if (cur_bloc_addr >= end_of_file) {
+        // On met le bloc à 0
         memset(header->data, '\0', pcache->blocksz); 
     } else {		//Si le bloc existe, on s'y rend puis on le lis
-    	if (fseek(pcache->fp, loff, SEEK_SET) != 0) {
+    	if (fseek(pcache->fp, cur_bloc_addr, SEEK_SET) != 0) {
     		return CACHE_KO;
     	}
     	if (fread(header->data, 1, pcache->blocksz, pcache->fp) != pcache->blocksz) {
