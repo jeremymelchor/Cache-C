@@ -149,7 +149,7 @@ Cache_Error Cache_Invalidate(struct Cache *pcache) {
 static Cache_Error Read_Block(struct Cache *pcache, struct Cache_Block_Header *header) {
     long loff, leof;
 
-    // On cherche la longueur courante du fichier
+    // On cherche la longueur actuelle du fichier
     int value = fseek(pcache->fp, 0, SEEK_END);
     if (value < 0) {
     	return CACHE_KO;
