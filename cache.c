@@ -1,12 +1,13 @@
 /*!
- * \file cache.c
+ * \file cache.h
+ *
+ * \brief Interface du cache.
  * 
- * \brief Implémentation du cache.
+ * \note Ce fichier (et donc l'utilisateur du cache), n'a pas besoin de
+ * connaitre les détails de l'implémentation du cache (struct Cache) : c'est un
+ * exemple de type \b opaque. 
  *
  * \author MEURGUES Nicolas
- *
- * $Id: cache.c,v 1.3 2008/03/04 16:52:49 jpr Exp $
- *
  */
 
 #include <unistd.h>
